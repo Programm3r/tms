@@ -153,6 +153,39 @@ ul.diff .k { font-family: var(--mono); font-size: 12px; }
 ul.diff .old { text-decoration: line-through; color: var(--muted); }
 
 #filter { width: 100%; margin-bottom: 8px; }
+
+/* data flow diagram */
+.flow svg { display: block; width: 100%; min-width: 820px; height: auto; }
+.flow-caption { margin: 0 0 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; margin: 8px 0 0; font-size: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.fl-head { fill: var(--surface-2); stroke: var(--border); }
+.fl-head-title { font: 700 13px system-ui, sans-serif; fill: var(--text); }
+.fl-head-sub { font: 11px var(--mono); fill: var(--muted); }
+.fl-life { stroke: var(--border); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.fl-text { font: 11px var(--mono); fill: var(--text); }
+.fl-label { fill: var(--text); }
+.fl-note { stroke-width: 1; }
+.fl-note-plain { fill: var(--surface-2); stroke: var(--border); }
+.fl-note-warn { fill: var(--warn-bg); stroke: var(--warn); }
+.fl-note-bad { fill: var(--bad-bg); stroke: var(--bad); }
+.fl-arrow { stroke-width: 2; fill: none; }
+.fl-dashed { stroke-dasharray: 6 4; }
+.fl-req { stroke: var(--accent); }
+.fl-ok { stroke: var(--ok); }
+.fl-bad { stroke: var(--bad); }
+.fl-plain { stroke: var(--muted); }
+.fl-warn { stroke: var(--warn); }
+.fl-mk-req { fill: var(--accent); }
+.fl-mk-ok { fill: var(--ok); }
+.fl-mk-bad { fill: var(--bad); }
+.fl-mk-plain { fill: var(--muted); }
+.fl-mk-warn { fill: var(--warn); }
+.fl-badge { fill: var(--accent); }
+.fl-badge-text { font: 700 10px system-ui, sans-serif; fill: var(--accent-text); }
+table.history tbody tr { cursor: pointer; }
+table.history tbody tr:hover td { background: var(--surface-2); }
+table.history tbody tr.selected td { background: var(--info-bg); }
 .foot { padding: 0 16px 24px; font-size: 12px; }
 
 @media (max-width: 900px) {

@@ -4,6 +4,8 @@
 //   3. 304 → keep the cache; 200 → replace content and ETag together.
 // The device cache is localStorage, keyed by environment and language tag.
 
+import { flowSvg } from './flow.js';
+
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -32,6 +34,7 @@ const state = {
   diff: null,            // { added, changed, removed } from the last 200 that replaced cached content
   changedKeys: new Set(),
   history: [],
+  selected: null,        // history entry shown in the data flow diagram
   live: {},              // env -> version.json from GitHub Pages
   bases: {},
 };
@@ -97,7 +100,13 @@ async function launch() {
   state.changedKeys = new Set();
   render();
 
-  const entry = { at: Date.now(), env, tag, sent: cached?.etag ?? null };
+  const entry = {
+    at: Date.now(),
+    env,
+    tag,
+    sent: cached?.etag ?? null,
+    device: { cacheKey: key, base: base.tag, cached: cached ? { etag: cached.etag, commit: cached.content?._meta?.commitId } : null },
+  };
   const started = performance.now();
   try {
     const res = await fetch(`/bff/${env}/bootstrap/v1/localisation/${encodeURIComponent(tag)}`, {
@@ -112,6 +121,7 @@ async function launch() {
       upstream: res.headers.get('x-upstream-status'),
       cdn: res.headers.get('x-upstream-cache'),
       ms: Math.round(performance.now() - started),
+      trace: res.headers.get('x-trace') ? JSON.parse(decodeURIComponent(res.headers.get('x-trace'))) : null,
     });
 
     if (res.status === 304) {
@@ -131,6 +141,7 @@ async function launch() {
         state.diff = d;
       } else {
         entry.outcome = 'updated';
+        entry.diff = { added: d.added.length, changed: d.changed.length, removed: d.removed.length };
         state.diff = d;
         state.changedKeys = new Set([...d.added, ...d.changed].map(x => x.key));
       }
@@ -143,6 +154,7 @@ async function launch() {
   }
 
   state.last = entry;
+  state.selected = entry;
   state.history.unshift(entry);
   state.history.length = Math.min(state.history.length, 40);
   render();
@@ -273,10 +285,19 @@ function renderCache() {
     </dl>`;
 }
 
+const OUTCOME_LABEL = { first: 'first download', updated: 'updated', 'same-content': 'new ETag, same content', unchanged: 'not modified', error: 'error' };
+
+function renderFlow() {
+  const e = state.selected;
+  if (!e) return;
+  const isLatest = e === state.history[0];
+  $('#flowCaption').innerHTML = `<strong>${esc(e.env.toUpperCase())} / ${esc(e.tag)}</strong> at ${time(e.at)} · ${esc(e.status)} ${esc(OUTCOME_LABEL[e.outcome])} · ${e.ms ?? '?'} ms${isLatest ? '' : ' <span class="muted">(older call)</span>'}`;
+  $('#flow').innerHTML = flowSvg(e);
+}
+
 function renderHistory() {
-  const label = { first: 'first download', updated: 'updated', 'same-content': 'new ETag, same content', unchanged: 'not modified', error: 'error' };
-  $('#history').innerHTML = state.history.map(e => `
-    <tr>
+  $('#history').innerHTML = state.history.map((e, i) => `
+    <tr data-i="${i}" class="${e === state.selected ? 'selected' : ''}" title="Show this call in the data flow diagram">
       <td>${time(e.at)}</td>
       <td>${esc(e.env)} / ${esc(e.tag)}</td>
       <td class="mono">${esc(e.sent ?? '—')}</td>
@@ -284,7 +305,7 @@ function renderHistory() {
       <td class="mono">${esc(e.received ?? '—')}</td>
       <td>${e.bytes ?? 0}</td>
       <td>${esc(e.cdn ?? '—')}</td>
-      <td>${label[e.outcome]}</td>
+      <td>${OUTCOME_LABEL[e.outcome]}</td>
     </tr>`).join('');
 }
 
@@ -320,6 +341,7 @@ function renderEnvs() {
 function render() {
   renderPhone();
   renderLast();
+  renderFlow();
   renderChanges();
   renderCache();
   renderHistory();
@@ -368,6 +390,14 @@ $('#clear').addEventListener('click', () => {
   render();
 });
 $('#showKeys').addEventListener('change', renderPhone);
+$('#history').addEventListener('click', e => {
+  const row = e.target.closest('tr[data-i]');
+  if (!row) return;
+  state.selected = state.history[Number(row.dataset.i)];
+  renderFlow();
+  renderHistory();
+  $('#flow').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+});
 $('#filter').addEventListener('input', renderKeys);
 
 let remaining = AUTO_SECONDS;

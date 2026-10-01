@@ -12,11 +12,12 @@ import { createBffHandler, loadConfig } from '../bff/bff.mjs';
 
 const config = loadConfig();
 const port = Number(process.env.PORT ?? 8090);
-const handlers = Object.fromEntries(Object.values(config.environments).map(e => [e.env, createBffHandler(e)]));
+const handlers = Object.fromEntries(Object.values(config.environments).map(e => [e.env, createBffHandler({ ...e, trace: true })]));
 const STATIC = {
   '/': ['app/index.html', 'text/html; charset=utf-8'],
   '/app.css': ['app/app.css', 'text/css; charset=utf-8'],
   '/app.js': ['app/app.js', 'text/javascript; charset=utf-8'],
+  '/flow.js': ['app/flow.js', 'text/javascript; charset=utf-8'],
 };
 
 const send = (res, status, type, body) => {
