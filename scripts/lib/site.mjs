@@ -1,11 +1,25 @@
 // Helpers for talking to the live GitHub Pages site.
 import { appendFileSync } from 'node:fs';
 
-/** Fetches a URL; a cache-busting query makes GitHub's CDN go back to its origin. */
-export async function get(url, { bust = false, headers = {} } = {}) {
+/**
+ * Returns a variant of a GitHub Pages URL that GitHub's CDN has (almost certainly) not cached yet.
+ *
+ * GitHub's CDN ignores query strings and request headers such as Cache-Control: no-cache, so neither
+ * forces a fresh copy. It does treat extra slashes in the path as a separate cache entry, and the
+ * Pages origin ignores them: /tms/sit///i18n/v1//fr-CI.json is a cache MISS for the same file and
+ * ETag. Each variant is cached once used, so the slash counts are random (1–20 per separator).
+ * Undocumented GitHub behaviour: use for tooling and the demo only, never in the real BFF.
+ */
+export function cdnBypassUrl(url) {
   const u = new URL(url);
-  if (bust) u.searchParams.set('nocache', `${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  return fetch(u, { headers: { 'accept-encoding': 'identity', ...headers }, signal: AbortSignal.timeout(15_000) });
+  const segments = u.pathname.split('/').filter(Boolean);
+  u.pathname = segments.map((s, i) => (i === 0 ? '/' : '/'.repeat(1 + Math.floor(Math.random() * 20))) + s).join('');
+  return u.href;
+}
+
+/** Fetches a URL; bust: true asks GitHub's CDN for an uncached path variant, so the origin answers. */
+export async function get(url, { bust = false, headers = {} } = {}) {
+  return fetch(bust ? cdnBypassUrl(url) : url, { headers: { 'accept-encoding': 'identity', ...headers }, signal: AbortSignal.timeout(15_000) });
 }
 
 export async function getJson(url) {
