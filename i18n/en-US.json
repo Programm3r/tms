@@ -29,7 +29,7 @@
       "enter-number-other-description": "Insert the number you require the PUK code for.",
       "tab-myself": "For myself",
       "tab-someone-else": "For someone else",
-      "request-puk": "Request PUK",
+      "request-puk": "Get my PUK",
       "error-puk4": "Failed to retrieve PUK",
       "error-puk-invalid-mtn-number": "Try again with a valid MTN number",
       "error-puk-unauthorised-title": "Unauthorised PUK Retrieval",
