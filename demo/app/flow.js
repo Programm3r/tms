@@ -153,8 +153,7 @@ export class FlowPlayer {
           <div class="fp-packet" hidden><span class="fp-dot"></span><span class="fp-txt"></span></div>
         </div>
       </div>
-      <div class="fp-now" aria-live="polite"></div>
-      <ol class="fp-steps"></ol>`;
+      <div class="fp-now" aria-live="polite"></div>`;
 
     this.stage = root.querySelector('.fp-stage');
     this.wires = root.querySelector('.fp-wires');
@@ -171,10 +170,6 @@ export class FlowPlayer {
     root.querySelector('[data-act="speed"]').addEventListener('change', ev => {
       this.speed = Number(ev.target.value);
       if (this.anim) this.anim.playbackRate = this.speed;
-    });
-    root.querySelector('.fp-steps').addEventListener('click', ev => {
-      const li = ev.target.closest('li[data-i]');
-      if (li) this.jump(Number(li.dataset.i));
     });
     new ResizeObserver(() => this.layout()).observe(this.stage);
   }
@@ -196,11 +191,6 @@ export class FlowPlayer {
       this.blocks[b].querySelector('.fp-sub').textContent = this.subs[b];
       this.blocks[b].classList.toggle('idle', !involved.has(b));
     }
-    this.root.querySelector('.fp-steps').innerHTML = this.steps.map((s, i) => `
-      <li data-i="${i}" class="fp-step fp-${s.tone}">
-        <span class="fp-n">${i + 1}</span>
-        <span>${s.type === 'msg' ? `<strong>${NAMES[s.from]} → ${NAMES[s.to]}</strong>` : `<strong>${NAMES[s.at]}</strong>`}: ${esc(s.type === 'msg' ? s.lines[0] : s.lines[0])}</span>
-      </li>`).join('');
     this.layout();
     if (this.reduced) this.jump(this.steps.length - 1);
     else this.play(0);
@@ -319,10 +309,6 @@ export class FlowPlayer {
   }
 
   markTimeline(i) {
-    this.root.querySelectorAll('.fp-steps li').forEach((li, k) => {
-      li.classList.toggle('current', k === i);
-      li.classList.toggle('past', k < i);
-    });
     this.root.querySelector('.fp-progress').textContent = i < this.steps.length ? `Step ${i + 1} of ${this.steps.length}` : '';
   }
 
