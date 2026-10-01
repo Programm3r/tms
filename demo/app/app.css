@@ -223,14 +223,6 @@ ul.diff .old { text-decoration: line-through; color: var(--muted); }
   background: var(--accent); color: var(--accent-text); font-size: 11px; font-weight: 700;
 }
 .fp-n.fp-ok { background: var(--ok); } .fp-n.fp-bad { background: var(--bad); } .fp-n.fp-warn { background: var(--warn); } .fp-n.fp-plain { background: var(--muted); }
-.fp-steps { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 2px; font-size: 12.5px; }
-.fp-step { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 6px; cursor: pointer; color: var(--muted); }
-.fp-step .fp-n { width: 18px; height: 18px; font-size: 10px; background: var(--border); color: var(--text); }
-.fp-step.past { color: var(--text); }
-.fp-step.past .fp-n { background: var(--muted); color: var(--surface); }
-.fp-step.current { color: var(--text); background: var(--info-bg); }
-.fp-step.current .fp-n { background: var(--accent); color: var(--accent-text); }
-.fp-step:hover { background: var(--surface-2); }
 @media (prefers-reduced-motion: reduce) {
   .fp-wire.active { animation: none; }
   .fp-block, .fp-block.receive { transition: none; animation: none; transform: none; }
