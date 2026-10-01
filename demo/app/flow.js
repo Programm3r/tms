@@ -214,7 +214,7 @@ export class FlowPlayer {
     for (let i = from; i < this.steps.length; i++) {
       if (id !== this.runId) return;
       await this.show(i, id);
-      await this.wait(350, id);
+      await this.wait(150, id);
     }
     if (id === this.runId) this.finish();
   }
@@ -249,7 +249,7 @@ export class FlowPlayer {
       this.packet.hidden = true;
       this.setState(s.at, s.lines, s.tone);
       this.blocks[s.at].classList.add('focus');
-      if (animate) await this.wait(900 + 260 * s.lines.length, id);
+      if (animate) await this.wait(500 + 150 * s.lines.length, id);
       return;
     }
 
@@ -265,7 +265,7 @@ export class FlowPlayer {
       this.blocks[s.to].classList.add('focus');
       return;
     }
-    this.anim = this.packet.animate([{ offsetDistance: '0%' }, { offsetDistance: '100%' }], { duration: 1700, easing: 'ease-in-out', fill: 'forwards' });
+    this.anim = this.packet.animate([{ offsetDistance: '0%' }, { offsetDistance: '100%' }], { duration: 1000, easing: 'ease-in-out', fill: 'forwards' });
     this.anim.playbackRate = this.speed;
     if (this.paused) this.anim.pause();
     try {
