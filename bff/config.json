@@ -1,0 +1,10 @@
+{
+  "siteUrl": "https://programm3r.github.io/tms",
+  "timeoutMs": 2000,
+  "environments": {
+    "sit":  { "port": 8081, "tags": ["en-US", "fr-FR", "fr-CI", "pt-PT"] },
+    "qa":   { "port": 8082, "tags": ["en-US", "fr-FR", "fr-CI"] },
+    "uat":  { "port": 8083, "tags": ["en-US", "fr-FR", "fr-CI"] },
+    "prod": { "port": 8084, "tags": ["en-US", "fr-FR", "fr-CI"] }
+  }
+}

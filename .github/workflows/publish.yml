@@ -1,0 +1,100 @@
+name: publish
+
+# Builds every environment's folder from its own branch and deploys them together to GitHub Pages.
+# Started by trigger-publish.yml (always with --ref main) or by hand from the Actions tab.
+#
+#   /<env>/i18n/v1/<tag>.json   sit ← sit, qa ← qa, uat ← uat, prod ← main
+#   /<env>/version.json
+#   /index.html
+#
+# Option B: no CDN purge is needed. GitHub clears its own CDN on every Pages deploy.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: false   # never stop a deploy part-way; a newer queued run replaces an older queued one
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      site: ${{ steps.pages.outputs.base_url }}
+      changed: ${{ steps.compare.outputs.changed }}
+      heads: ${{ steps.compare.outputs.heads }}
+    steps:
+      - name: Refuse to run from any branch other than main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::publish must run from main (got ${GITHUB_REF})"
+          exit 1
+
+      - name: Checkout tooling (main)
+        uses: actions/checkout@v4
+        with: { ref: main, path: tools }
+      - name: Checkout sit
+        uses: actions/checkout@v4
+        with: { ref: sit, path: src/sit }
+      - name: Checkout qa
+        uses: actions/checkout@v4
+        with: { ref: qa, path: src/qa }
+      - name: Checkout uat
+        uses: actions/checkout@v4
+        with: { ref: uat, path: src/uat }
+      - name: Checkout main (PROD)
+        uses: actions/checkout@v4
+        with: { ref: main, path: src/prod }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Validate every environment and build the site
+        run: >
+          node tools/scripts/build-site.mjs --out out
+          ${{ vars.PRESERVE_MTIME == 'true' && '--preserve-mtime' || '' }}
+          sit=src/sit qa=src/qa uat=src/uat prod=src/prod
+
+      - name: Compare with the live site (changed environments, PROD guard)
+        id: compare
+        run: >
+          node tools/scripts/compare-live.mjs --site "${{ steps.pages.outputs.base_url }}" --out out
+          --envs sit,qa,uat,prod --guard prod
+          ${{ vars.PRESERVE_MTIME == 'true' && '--preserve-mtime' || '' }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  verify:
+    needs: [build, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Wait until every environment is live, then record ETags and 304 behaviour
+        run: >
+          node scripts/verify-live.mjs --site "${{ needs.build.outputs.site }}"
+          --heads '${{ needs.build.outputs.heads }}'

@@ -1,0 +1,23 @@
+name: validate
+
+# Required status check on sit, qa, uat and main. All environments deploy together, so an invalid
+# file on any branch would block every environment, including PROD.
+on:
+  pull_request:
+    branches: [sit, qa, uat, main]
+  push:
+    branches: [sit, qa, uat, main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate locale files
+        run: node scripts/validate.mjs i18n

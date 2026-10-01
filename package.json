@@ -1,0 +1,13 @@
+{
+  "name": "tms-locale-poc",
+  "private": true,
+  "description": "POC: locale files per environment on GitHub Pages, served through a pass-through bootstrap BFF (option B)",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "validate": "node scripts/validate.mjs i18n",
+    "bff": "node bff/server.mjs",
+    "device": "node demo/device.mjs",
+    "showcase": "node demo/showcase.mjs"
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "kmn": {
+    "title": "Know my number",
+    "description": "View the phone number linked to this SIM.",
+    "show-number": "Show my number",
+    "your-number": "Your number is {{msisdn}}",
+    "copy-number": "Copy number",
+    "copied": "Number copied to clipboard",
+    "section": {
+      "refresh": "Refresh number"
+    }
+  },
+  "puk": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "just-moment": "Just a moment...",
+    "language": {
+      "text": "Language"
+    },
+    "cellPhone": {
+      "phone": "Cellphone Number"
+    },
+    "section": {
+      "puk-retrieval": "PUK retrieval",
+      "refresh": "Refresh",
+      "enter-number": "Request PUK Number",
+      "enter-number-description": "The number below is linked to your current account profile.",
+      "enter-number-other": "Enter phone number",
+      "enter-number-other-description": "Insert the number you require the PUK code for.",
+      "tab-myself": "For myself",
+      "tab-someone-else": "For someone else",
+      "request-puk": "Request PUK",
+      "error-puk4": "Failed to retrieve PUK",
+      "error-puk-invalid-mtn-number": "Try again with a valid MTN number",
+      "error-puk-unauthorised-title": "Unauthorised PUK Retrieval",
+      "error-puk-unauthorised-description": "You do not have the necessary authorization to retrieve the PUK code for this number. Only the account holder can request this information. If you believe this is an error, please contact customer support.",
+      "description-error": "Please refresh or try again later.",
+      "success-puk1": "PUK Number Retrieved Successfully!",
+      "success-puk2": "We have successfully retrieved your PUK. For your convenience please copy the PUK number below and store it in a safe place.",
+      "success-puk3": "We have successfully retrieved the PUK number. For your convenience please copy the PUK number below and store it in a safe place.",
+      "puk-number": "Your PUK number:",
+      "hidden-puk": "PUK number will be hidden in:",
+      "copy-code": "Copy Code",
+      "hide-puk": "Hide PUK",
+      "show-puk": "Show PUK",
+      "copy-puk1": "Your PUK number has been copied to the device clipboard.",
+      "copy-puk2": "Copied to clipboard",
+      "error-copy-puk": "Failed to copy PUK number",
+      "info-puk-title": "What is a PUK number?",
+      "info-puk-description": "The PIN Unblocking Key (PUK) is a unique master security code used for unblocking and resetting the Personal Identification Number (PIN) on mobile phones if it is lost or forgotten. This specific code can only be obtained directly from MTN.",
+      "info-puk-sim-blocked-title": "Why does a SIM card get blocked?",
+      "info-puk-sim-blocked-description": "Entering your PIN incorrectly three times automatically blocks your SIM card for security",
+      "info-puk-when-blocked-title": "What happens when blocked?",
+      "info-puk-when-blocked-description": "You can only make emergency calls. All other phone features are restricted.",
+      "info-puk-unlock-title": "How to unlock your SIM",
+      "info-puk-unlock-description": "Enter your PUK code when prompted to restore full access."
+    }
+  }
+}

@@ -1,0 +1,5 @@
+# Each locale file is owned by its market reviewers. In this POC one account owns everything.
+# Example for a real setup:
+#   /i18n/fr-CI.json  @org/mtn-ci-reviewers
+#   /i18n/en-US.json  @org/central-content
+*                 @Programm3r

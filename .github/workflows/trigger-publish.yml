@@ -1,0 +1,23 @@
+name: trigger-publish
+
+# A push runs the workflow file from the pushed branch. If publish ran here directly, an unreviewed
+# change to the workflow on sit could rebuild and deploy PROD. This workflow only starts publish.yml
+# from main, so the reviewed PROD version of the workflow and scripts always does the deploy.
+on:
+  push:
+    branches: [sit, qa, uat, main]
+    paths: ['i18n/**']
+
+permissions:
+  actions: write   # start another workflow (workflow_dispatch is allowed with GITHUB_TOKEN)
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start publish from main
+        run: gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Summary
+        run: echo "Push to \`${GITHUB_REF_NAME}\` started the [publish workflow](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/workflows/publish.yml) from \`main\`." >> "$GITHUB_STEP_SUMMARY"
