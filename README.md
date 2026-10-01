@@ -57,7 +57,11 @@ bff/
   server.mjs              runs it locally, one port per environment
   config.json             site URL and per-environment tag allowlists
 demo/
-  device.mjs              simulates the device: cache, compiled base file, conditional GET
+  app/                    browser front end: phone screen + ETag, status, diff, cache, history
+  app-server.mjs          serves the front end and hosts all four BFFs on http://localhost:8090
+  add-key.mjs             adds or changes a key in every locale file on a branch (PR or direct)
+  promote.mjs             promotes sit → qa → uat → main with a merge commit (PR or direct)
+  device.mjs              command-line device simulator
   showcase.mjs            plays through the option B scenarios end to end
 .github/workflows/
   validate.yml            required check on every branch
@@ -106,7 +110,61 @@ flowchart LR
 
 ---
 
-## Run it locally
+## The demo app (front end)
+
+```sh
+cd C:\Dev\tms
+npm run app                              # http://localhost:8090  (PORT=xxxx to change)
+```
+
+The page behaves like the app on a device:
+
+- **Phone screen:** the PUK and Know-my-number screens, rendered from the locale data. *Show keys* shows the i18next key under every string.
+  - Strings that just changed are highlighted.
+  - Strings taken from the compiled base file have a dotted underline.
+  - Keys that don't exist yet in that environment show in red as the key name, e.g. `puk:section.help-link` until you add it.
+- **Environment and Language pickers, *Launch app*:**
+  1. Renders immediately from the device cache (the browser's `localStorage`), or from the compiled base file if nothing is cached.
+  2. Then makes one conditional GET to that environment's BFF.
+  - *Auto-check* repeats this every 15 seconds. *Clear device cache* forgets the file and ETag.
+- **Last launch:** the status, with what it means:
+  - **200 first download**
+  - **304 not modified**
+  - **200 content updated**
+  - **200 new ETag, same content**: the site was redeployed for another environment
+  - **400 / 404 / 502**
+
+  It also shows the ETag sent, the ETag received (decoded into file time and size), bytes downloaded, and GitHub's CDN result.
+- **What changed:** keys added, changed or removed compared with the previous cached version.
+- **Device cache:** the stored ETag and `_meta.commitId`, and whether that matches what the site serves now.
+- **Request history** and **All keys**, with new and changed keys flagged.
+- **The environment cards at the top** show which commit each environment serves on GitHub Pages and each BFF's allowlist. Click a card to switch environment.
+
+## Scripts that change content the way a team would
+
+```sh
+npm run add-key                          # adds puk.section.help-link to every locale file on sit → prints a PR link
+npm run add-key -- --direct              # same, but squash-merged into sit and pushed (fast demo)
+npm run add-key -- --key puk.section.request-puk --value en-US="Get PUK now" --env sit --direct
+                                         # changes an existing value (other locales keep theirs)
+
+npm run promote -- sit qa                # prints the promotion PR link (merge with "Create a merge commit")
+npm run promote -- sit qa --direct       # merges sit into qa with --no-ff and pushes
+npm run promote -- qa uat --direct
+npm run promote -- uat main --direct     # PROD
+```
+
+**What `add-key` does:**
+1. Creates `content/<key>-<id>` from the environment branch.
+2. Writes the value into **every** locale file on that branch. The completeness check requires this.
+3. Runs the same validation as CI, then commits.
+4. Then either pushes the branch for a PR, or squash-merges it into the environment branch and pushes (`--direct`).
+
+**What `promote` does:** shows the commits and locale changes that would move up, then either prints the PR link or merges with a merge commit (`--direct`).
+
+Both scripts refuse to run with uncommitted changes, and switch back to the branch you were on.
+
+## Run it from the command line
 
 ```sh
 cd C:\Dev\tms
@@ -152,26 +210,38 @@ The BFF logs one line per request, showing the upstream status and GitHub's CDN 
   - it adds **`pt-PT`**, a new market;
   - it changes the en-US value of `puk.section.request-puk` from "Request PUK" to "Get my PUK".
 
-### 1. Change content in SIT
+Start the app (`npm run app`), open http://localhost:8090 and press **Launch app** once for **SIT / fr-CI** and once for **PROD / fr-CI**. Each gets a first download, so both are cached. The red `puk:section.help-link` under the button shows the key doesn't exist anywhere yet.
 
-1. Create a branch from `sit` and change a value in `i18n/fr-CI.json`. Open a PR into `sit`; `validate` runs.
-2. Merge it (squash). `trigger-publish` runs on `sit` and starts `publish` from `main`.
-3. When `publish` finishes, the job summary shows SIT as **changed** and QA, UAT and PROD as unchanged. PROD passes the byte-identical guard.
-4. Run `node demo/device.mjs --env sit --tag fr-CI` twice. The first run gets **200** with a new ETag (content and ETag replaced together). The second gets **304**.
+### 1. Add a new key in SIT
 
-### 2. See the validation block a bad change
+1. `npm run add-key` (PR: open the printed link and **Squash and merge**), or `npm run add-key -- --direct`.
+2. `trigger-publish` runs on `sit` and starts `publish` from `main` (https://github.com/Programm3r/tms/actions). About a minute later, the SIT card at the top of the app shows the new commit.
+3. **SIT / fr-CI → Launch app:**
+   - **Last launch:** **200 · content updated**, with a different ETag received from the one sent.
+   - **What changed:** `NEW puk.section.help-link`.
+   - **Phone:** the new string is highlighted.
+   - **Launch again:** **304 · not modified**, 0 bytes.
+4. **PROD / fr-CI → Launch app:** **200 · new ETag, same content**. GitHub redeployed the whole site, so PROD's ETags changed, but its content didn't. The key is still red in PROD. See *ETag note* below.
 
-Open a PR into `sit` that removes a key from `fr-CI.json`, or adds `<b>` to a value. `validate` fails, with an annotation on the file.
+### 2. Change an existing value
 
-### 3. Promote SIT → QA
+```sh
+npm run add-key -- --key puk.section.request-puk --value fr-CI="Recevoir mon PUK" --direct
+```
 
-1. Open https://github.com/Programm3r/tms/compare/qa...sit and create the PR.
-2. Merge with **Create a merge commit**. After publishing, QA has `pt-PT.json` and the new en-US wording.
-3. `node demo/device.mjs --env qa --tag pt-PT` still returns **400**: the content is published, but QA's BFF allowlist doesn't include `pt-PT` yet. Content and market enablement are deliberately separate. Add `pt-PT` to `qa.tags` in `bff/config.json` to enable it.
+After publishing, **SIT / fr-CI → Launch app** shows **CHANGED** `puk.section.request-puk: "Obtenir mon code PUK" → "Recevoir mon PUK"`.
 
-### 4. Promote QA → UAT → PROD
+### 3. See the validation block a bad change
 
-Do the same with https://github.com/Programm3r/tms/compare/uat...qa, then https://github.com/Programm3r/tms/compare/main...uat. When `main` changes, PROD is shown as **changed** and the guard is skipped. That is expected: PROD content is meant to change.
+Open a PR into `sit` that removes a key from `fr-CI.json`, or adds `<b>` to a value. `validate` fails, with an annotation on the file. `add-key` runs the same check locally and refuses to commit.
+
+### 4. Promote SIT → QA → UAT → PROD
+
+1. `npm run promote -- sit qa` lists the commits and locale changes that will move up, and prints the PR link. Merge it with **Create a merge commit**. Or add `--direct`.
+2. After publishing, **QA** has the new key and wording, and `pt-PT.json`. Switch the app to QA to see the update.
+3. **QA / pt-PT** still returns **400**: the file is published, but QA's BFF allowlist doesn't include `pt-PT`. Content and market enablement are deliberately separate. Add `pt-PT` to `qa.tags` in `bff/config.json` and restart the app to enable it.
+4. `npm run promote -- qa uat`, then `npm run promote -- uat main`. When `main` changes, the publish summary shows PROD as **changed** and the guard is skipped. That's expected: PROD content is meant to change.
+5. **PROD / fr-CI → Launch app:** **200 · content updated**, and the new key appears in PROD.
 
 ### 5. Hotfix
 

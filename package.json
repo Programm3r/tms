@@ -8,6 +8,9 @@
     "validate": "node scripts/validate.mjs i18n",
     "bff": "node bff/server.mjs",
     "device": "node demo/device.mjs",
-    "showcase": "node demo/showcase.mjs"
+    "showcase": "node demo/showcase.mjs",
+    "app": "node demo/app-server.mjs",
+    "add-key": "node demo/add-key.mjs",
+    "promote": "node demo/promote.mjs"
   }
 }

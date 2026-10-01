@@ -26,10 +26,15 @@ export function loadConfig(path = new URL('./config.json', import.meta.url)) {
   return { ...config, siteUrl };
 }
 
-export function createBff({ env, baseUrl, tags, timeoutMs = 2000, log = console.log }) {
+export function createBff(options) {
+  return createServer(createBffHandler(options));
+}
+
+/** The request handler on its own, so the demo app server can host every environment's BFF. */
+export function createBffHandler({ env, baseUrl, tags, timeoutMs = 2000, log = console.log }) {
   const allowlist = new Set(tags);
 
-  return createServer(async (req, res) => {
+  return async (req, res) => {
     const started = performance.now();
     const path = new URL(req.url, 'http://bff').pathname;
     const match = ROUTE.exec(path);
@@ -88,5 +93,5 @@ export function createBff({ env, baseUrl, tags, timeoutMs = 2000, log = console.
     await upstream.body?.cancel();
     if (upstream.status === 404) return error(404, 'locale_not_published', { tag }, via);
     return error(502, 'upstream_error', { status: upstream.status }, via);
-  });
+  };
 }

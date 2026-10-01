@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Locale Delivery Demo</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="intro">
+    <h1>Locale delivery demo</h1>
+    <p>Device → bootstrap BFF → GitHub Pages (option B). Each environment is built only from its own branch.</p>
+  </div>
+  <div class="controls">
+    <label>Environment
+      <select id="env"></select>
+    </label>
+    <label>Language
+      <select id="tag"></select>
+    </label>
+    <button type="button" id="launch" class="primary">Launch app</button>
+    <button type="button" id="clear">Clear device cache</button>
+    <label class="check"><input type="checkbox" id="auto"> Auto-check <span id="countdown" class="muted"></span></label>
+    <label class="check"><input type="checkbox" id="showKeys"> Show keys</label>
+  </div>
+</header>
+
+<section class="envs" id="envs" aria-label="What each environment serves on GitHub Pages"></section>
+
+<main class="layout">
+  <section class="device">
+    <div class="phone" id="phone" aria-label="App screen rendered from the locale data"></div>
+    <p class="caption" id="renderedFrom"></p>
+  </section>
+
+  <section class="panel">
+    <article class="card" id="lastCard">
+      <h2>Last launch</h2>
+      <div id="last"><p class="muted">Press <strong>Launch app</strong>.</p></div>
+    </article>
+
+    <article class="card">
+      <h2>What changed</h2>
+      <div id="changes"><p class="muted">Nothing yet.</p></div>
+    </article>
+
+    <article class="card">
+      <h2>Device cache</h2>
+      <div id="cache"></div>
+    </article>
+
+    <article class="card">
+      <h2>Request history</h2>
+      <div class="scroll">
+        <table class="history">
+          <thead><tr><th>Time</th><th>Env / tag</th><th>If-None-Match sent</th><th>Status</th><th>ETag received</th><th>Bytes</th><th>GitHub CDN</th><th>Result</th></tr></thead>
+          <tbody id="history"></tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>All keys <span class="muted" id="keyCount"></span></h2>
+      <input type="search" id="filter" placeholder="Filter keys or values" aria-label="Filter keys">
+      <div class="scroll tall">
+        <table class="keys">
+          <tbody id="keys"></tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+</main>
+
+<footer class="foot muted">
+  New content is applied as soon as it arrives in this demo. The real shell keeps it pending and applies it at the next journey mount.
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
