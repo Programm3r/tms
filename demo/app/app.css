@@ -131,6 +131,8 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .badge.info { background: var(--info-bg); color: var(--info); }
 .badge.warn { background: var(--warn-bg); color: var(--warn); }
 .badge.bad { background: var(--bad-bg); color: var(--bad); }
+.badge.neutral { background: var(--surface-2); color: var(--muted); }
+.badge.sm { font-size: 11px; padding: 0 7px; font-weight: 600; vertical-align: 1px; margin-left: 4px; }
 .headline { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
 .headline .text { font-size: 15px; }
 dl.facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; }
