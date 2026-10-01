@@ -269,15 +269,24 @@ demo/
 
 ---
 
-## ETag note and optional experiment
+## ETag note: every publish changes every ETag
 
-GitHub Pages builds the ETag from the file's **modification time and size**. Every deploy rewrites every file, so a SIT publish also gives PROD's files new ETags. Their content is identical, but PROD devices download their file once more, which is harmless but wasteful. The app shows this as **200 · new ETag, same content**.
+GitHub Pages builds the ETag from the file's **modification time and size**, and it sets the modification time itself, **at deployment**.
+- **Effect:** every publish, even a SIT-only one, gives every file in every environment a new ETag.
+- **Content is unaffected:** QA, UAT and PROD files are byte-identical (the PROD check enforces it).
+- **Cost:** each device downloads its file once more after any publish. The app shows this as **outdated → changed** and **200 · new ETag, same content**.
 
-**Experiment:** set the repository variable **`PRESERVE_MTIME=true`** (*Settings → Secrets and variables → Actions → Variables*).
-- `build-site.mjs` sets each environment's file times to its branch head's commit time.
-- `compare-live.mjs` fails a deploy whose new commit time isn't later than the live one, because that could publish new content with an old ETag.
+**Tested, and it doesn't fix this (2026-10-01):** the `PRESERVE_MTIME=true` repository variable makes `build-site.mjs` set each environment's file times to its branch's commit time. GitHub Pages ignores the uploaded file times:
 
-Publish a SIT-only change and compare PROD's ETags in two consecutive `verify` summaries. If they stay the same, GitHub Pages keeps the uploaded file times, and the fix works.
+| Time | What happened |
+|---|---|
+| 15:36:18–19 | build wrote the files |
+| 15:36:35–41 | `deploy-pages` ran |
+| **15:36:37** | the file time in every live ETag |
+
+Leave the variable unset. Only these avoid the extra downloads:
+- **Separate sites (Strategy 2):** a SIT publish can't touch PROD's files.
+- **Content-based ETags:** the BFF uses a hash of the file content instead of GitHub's ETag. This changes the "ETag passed through unchanged" design.
 
 **Observation (2026-10-01):** GitHub once returned `"689c7eee-386e"` for `pages.github.com`, and then `"689c7eef-386e"` on a dozen later requests. The likely cause is two GitHub origin copies with file times one second apart.
 - **Effect if it happens:** a device's ETag doesn't match the copy that answers, so it gets a 200 instead of a 304. That costs a few KB.
