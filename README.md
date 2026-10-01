@@ -1,193 +1,179 @@
-# TMS locale files: POC (Strategy 1, option B)
+# TMS locale delivery: proof of concept
 
-A proof of concept for publishing translation (locale) files per environment from **one GitHub repository** to **one GitHub Pages site**. The files are served to devices through a **pass-through bootstrap BFF** (option B: no Azure Front Door).
+Translation (locale) files for the app, managed in **one GitHub repository** with **one branch per environment**. A GitHub Actions workflow publishes them to **GitHub Pages**. The app on the device gets them through a **pass-through bootstrap BFF** that uses ETags, so a device downloads a file only when it has changed.
 
-What it demonstrates:
-
-- **A branch per environment, a folder per environment in the published site.** `sit`, `qa`, `uat` and `main` (PROD) each publish to their own folder and can't affect each other.
-- **One publish workflow** that rebuilds every environment from its own branch, refuses to change PROD unless `main` changed, and deploys everything as a single Pages artifact.
-- **ETag revalidation end to end.** The device sends `If-None-Match`, the BFF forwards it unchanged, and GitHub's CDN answers 304 or 200. The ETag the device holds is GitHub's, unchanged. The BFF computes nothing and stores nothing.
-- **The TSD content rules:**
-  - file name = language tag;
-  - journeys as top-level objects (i18next namespaces);
-  - every locale complete against `en-US`;
-  - matching placeholders;
-  - no HTML;
-  - `_meta` added at publish.
-
-Design documents: `localisation-tms/tsd-changes/azure-front-door-etag-caching.md` and `environments-strategy-1-single-site.md`.
+This is **Strategy 1** (one repository, one site) with **option B** (BFF → GitHub Pages directly, no Azure Front Door). The design is in `localisation-tms/tsd-changes/`: `azure-front-door-etag-caching.md` and `environments-strategy-1-single-site.md`.
 
 ---
 
-## Architecture
+## What this demonstrates
+
+| Question | What you see in the demo |
+|---|---|
+| How do SIT, QA, UAT and PROD keep separate content in one repository? | Each environment is a branch (`sit`, `qa`, `uat`, `main`) published to its own folder. A change to SIT shows up in SIT only, until it is promoted. |
+| How does a change move between environments? | `add-key` adds a key in SIT. `promote` moves it to QA, then UAT, then PROD with merge commits. The app shows it arriving in each environment. |
+| How does a device know whether its locale file changed? | The app shows the ETag it sent and the ETag received: **304** when nothing changed (0 bytes), **200** when it did, with a key-by-key diff of what changed. |
+| Does the BFF have to compute or store anything? | No. It forwards `If-None-Match` to GitHub Pages and passes back 304 or 200 with GitHub's ETag unchanged. |
+| What stops bad content reaching an environment? | The `validate` check runs on every PR and push, and again at publish. It checks file names, journey structure, completeness against `en-US`, placeholders and HTML. |
+| Can a non-PROD publish accidentally change PROD? | No. The publish workflow refuses to deploy if PROD's files would change while `main` didn't. |
+| How is a new market enabled per environment? | `pt-PT` is published in SIT, and only SIT's BFF allowlists it. PROD's BFF returns 400 without calling GitHub. |
+| What does the device show while it has nothing, or the BFF is down? | It renders from the compiled base file (`en-US`, or `fr-FR` for French tags) and keeps its cached file on any error. |
+
+---
+
+## Get started
+
+**You need:** Node.js 20 or later and Git. There are no npm dependencies, so there is no `npm install`.
+
+```sh
+git clone https://github.com/Programm3r/tms.git
+cd tms
+npm run app
+```
+
+Open **http://localhost:8090**. (Use `PORT=9000 npm run app`, or `$env:PORT=9000; npm run app` in PowerShell, if 8090 is taken.)
+
+1. The app launches **SIT / en-US** and shows **200 · first download**: the file and its ETag are now in the device cache (your browser's `localStorage`).
+2. Press **Launch app** again: **304 · not modified**, 0 bytes. GitHub answered the ETag check, and the BFF passed it through.
+3. Switch the environment to **PROD**. The *Get my PUK* button reads **Request PUK** in PROD, because SIT's wording change hasn't been promoted.
+4. With PROD selected, choose **pt-PT**: **400**, because pt-PT isn't on PROD's allowlist. The screen falls back to the compiled base file; the dotted underline marks those strings.
+5. Tick **Show keys** to see the i18next key under every string.
+
+For a version with no browser, run `npm run showcase`. It plays through the same scenarios in the terminal against the live site.
+
+To change content (`add-key`, `promote`), you need **write access to the repository**. See the [walkthrough](#demo-walkthrough).
+
+---
+
+## How the demo works
 
 ```mermaid
 flowchart LR
-    D["Device (RN shell)<br/>cache: content + ETag"] -- "GET /bootstrap/v1/localisation/fr-CI<br/>If-None-Match" --> B["Bootstrap BFF<br/>(one per environment)"]
-    B -- "GET /tms/sit/i18n/v1/fr-CI.json<br/>Accept-Encoding: identity<br/>If-None-Match forwarded" --> G["GitHub Pages<br/>programm3r.github.io/tms"]
-    G -- "304, or 200 + file + ETag" --> B
-    B -- "304, or 200 + file + ETag (unchanged)" --> D
-```
-
-| Environment | Branch | Published folder | Local BFF |
-|---|---|---|---|
-| SIT | `sit` | https://programm3r.github.io/tms/sit/i18n/v1/ | http://localhost:8081 |
-| QA | `qa` | https://programm3r.github.io/tms/qa/i18n/v1/ | http://localhost:8082 |
-| UAT | `uat` | https://programm3r.github.io/tms/uat/i18n/v1/ | http://localhost:8083 |
-| PROD | `main` | https://programm3r.github.io/tms/prod/i18n/v1/ | http://localhost:8084 |
-
-An overview of what each environment serves is at https://programm3r.github.io/tms/.
-
-## Repository layout (the same on every branch)
-
-```
-i18n/                     source locale files, one per language tag, structured by journey
-  en-US.json              English source (complete, the reference for completeness)
-  fr-FR.json
-  fr-CI.json
-  pt-PT.json              only on sit at first: a new market that hasn't been promoted yet
-scripts/
-  validate.mjs            content rules (PR check)
-  build-site.mjs          builds out/<env>/... from each branch, adds _meta and version.json
-  compare-live.mjs        finds changed environments; PROD guard
-  verify-live.mjs         after deploy: waits for the new commits, records ETags and 304 behaviour
-  lib/                    shared helpers
-bff/
-  bff.mjs                 the pass-through BFF (option B)
-  server.mjs              runs it locally, one port per environment
-  config.json             site URL and per-environment tag allowlists
-demo/
-  app/                    browser front end: phone screen + ETag, status, diff, cache, history
-  app-server.mjs          serves the front end and hosts all four BFFs on http://localhost:8090
-  add-key.mjs             adds or changes a key in every locale file on a branch (PR or direct)
-  promote.mjs             promotes sit → qa → uat → main with a merge commit (PR or direct)
-  device.mjs              command-line device simulator
-  showcase.mjs            plays through the option B scenarios end to end
-.github/workflows/
-  validate.yml            required check on every branch
-  trigger-publish.yml     on a push to any environment branch, starts publish.yml from main
-  publish.yml             build → compare → deploy → verify
-```
-
-The scripts need Node 20 or later and have no dependencies, so there is no `npm install`.
-
----
-
-## One-time GitHub setup
-
-1. **Enable Pages:** *Settings → Pages → Build and deployment → Source:* **GitHub Actions**.
-2. **Restrict Pages deploys to `main`:** *Settings → Environments → `github-pages` → Deployment branches and tags*. Allow **`main` only**. `publish.yml` always runs from `main`, and also refuses to run from any other branch.
-3. **First publish:** *Actions → publish → Run workflow* (branch `main`). After this, every push to an environment branch publishes automatically.
-4. **Recommended rulesets** (*Settings → Rules → Rulesets*), one per branch, targeting `sit`, `qa`, `uat` and `main`:
-   - Require a pull request before merging.
-   - Require status check **`validate`**.
-   - Allowed merge methods: **squash** on `sit`; **merge commit only** on `qa`, `uat` and `main`. Squashing a promotion makes the branch histories drift apart, and every later promotion conflicts.
-   - Block force pushes.
-5. Optional: set the default branch to **`sit`** (*Settings → General*) so contributors' PRs target it automatically. Publishing is unaffected, because it always runs from `main`.
-
----
-
-## How publishing works
-
-```mermaid
-flowchart LR
-    P["push to sit / qa / uat / main<br/>(i18n/** changed)"] --> T["trigger-publish<br/>(runs on that branch)"]
-    T -- "gh workflow run publish.yml --ref main" --> B
-    subgraph Pub["publish (always from main)"]
-        B["build<br/>checkout 4 branches<br/>validate + build out/"] --> C["compare-live<br/>changed envs<br/>PROD guard"]
-        C --> U[upload artifact] --> Dp[deploy-pages] --> V["verify-live<br/>ETag + 304 table"]
+    subgraph Repo["GitHub repository"]
+        S[sit] ~~~ Q[qa] ~~~ U[uat] ~~~ M["main (PROD)"]
     end
+    Repo -- "push → trigger-publish → publish<br/>(validate, build each env from its branch)" --> P["GitHub Pages<br/>/sit /qa /uat /prod"]
+    subgraph Local["Your machine: npm run app"]
+        A["Demo app<br/>(the 'device')"] -- "GET /bff/{env}/bootstrap/v1/localisation/{tag}<br/>If-None-Match" --> B["BFF per environment"]
+    end
+    B -- "GET /tms/{env}/i18n/v1/{tag}.json<br/>Accept-Encoding: identity, If-None-Match" --> P
+    P -- "304, or 200 + file + ETag" --> B
+    B -- "same response, unchanged" --> A
 ```
 
-- **Every run rebuilds all four environments from their branch heads.** If two pushes land close together, the newer queued run replaces the older one. Nothing is lost: the newer run publishes both changes.
-- **`_meta.publishedAt` is the commit time of the branch head, not the build time.** Rebuilding an unchanged branch therefore gives byte-identical files.
-- **PROD guard:** if `main` didn't change, every PROD file must be byte-identical to the live file. If a workflow or script change would alter PROD anyway, the deploy stops.
-- **No CDN purge (option B):** GitHub clears its own CDN on every Pages deploy. GitHub sends `Cache-Control: max-age=600`.
-- **The `verify` job summary** lists every published file with:
-  - its ETag, decoded into file modification time and size;
-  - the response to a conditional request (`304`);
-  - the gzip ETag, which differs from the uncompressed one. That difference is why the BFF always asks for `Accept-Encoding: identity`.
+1. **Content** lives in `i18n/<tag>.json` on each environment branch, structured by journey (`kmn`, `puk`).
+2. **Publishing:**
+   - A push that changes `i18n/` on any environment branch starts the `publish` workflow, which always runs from `main`.
+   - `publish` checks out all four branches, validates them, and builds `/<env>/i18n/v1/<tag>.json`, adding `_meta` with the commit and its time.
+   - It deploys everything to GitHub Pages in one go.
+3. **Delivery:** the demo app plays the device. On each launch it makes one conditional GET to its environment's BFF. The BFF forwards it to GitHub Pages and passes the answer back unchanged.
+
+| Environment | Branch | Published folder | BFF in the demo app |
+|---|---|---|---|
+| SIT | `sit` | https://programm3r.github.io/tms/sit/i18n/v1/ | http://localhost:8090/bff/sit/… |
+| QA | `qa` | https://programm3r.github.io/tms/qa/i18n/v1/ | http://localhost:8090/bff/qa/… |
+| UAT | `uat` | https://programm3r.github.io/tms/uat/i18n/v1/ | http://localhost:8090/bff/uat/… |
+| PROD | `main` | https://programm3r.github.io/tms/prod/i18n/v1/ | http://localhost:8090/bff/prod/… |
+
+https://programm3r.github.io/tms/ lists which commit each environment currently serves.
 
 ---
 
-## The demo app (front end)
+## Demo walkthrough
+
+**Starting state:**
+- `main`, `uat` and `qa` contain `en-US`, `fr-FR` and `fr-CI`.
+- `sit` additionally has **`pt-PT`** (a new market) and en-US *"Get my PUK"* instead of *"Request PUK"*.
+- No environment has `puk.section.help-link` yet. That's the red key under the button on the phone.
+
+**Before you start:** with the app open, launch **SIT / fr-CI** and **PROD / fr-CI** once each, so both are cached on the "device".
+
+### 1. Add a new key in SIT
 
 ```sh
-cd C:\Dev\tms
-npm run app                              # http://localhost:8090  (PORT=xxxx to change)
+npm run add-key -- --direct          # or: npm run add-key  → prints a PR link; merge with "Squash and merge"
 ```
 
-The page behaves like the app on a device:
+1. The script adds `puk.section.help-link` to **every** locale file on `sit`, validates, and pushes.
+2. `trigger-publish` runs on `sit` and starts `publish` from `main` (https://github.com/Programm3r/tms/actions). After about a minute, the **SIT** card at the top of the app shows the new commit.
+3. **SIT / fr-CI → Launch app:**
+   - **200 · content updated**, with *ETag received* different from *If-None-Match sent*.
+   - **What changed:** `NEW puk.section.help-link`.
+   - The new string is highlighted on the phone.
+4. **Launch app** again: **304 · not modified**, 0 bytes.
+5. **PROD / fr-CI → Launch app:** the key is still red, because PROD is unaffected. Expect **200 · new ETag, same content**: GitHub redeployed the whole site, which gives PROD's files new ETags, but their content is identical. See [ETag note](#etag-note-and-optional-experiment).
 
-- **Phone screen:** the PUK and Know-my-number screens, rendered from the locale data. *Show keys* shows the i18next key under every string.
-  - Strings that just changed are highlighted.
-  - Strings taken from the compiled base file have a dotted underline.
-  - Keys that don't exist yet in that environment show in red as the key name, e.g. `puk:section.help-link` until you add it.
-- **Environment and Language pickers, *Launch app*:**
-  1. Renders immediately from the device cache (the browser's `localStorage`), or from the compiled base file if nothing is cached.
-  2. Then makes one conditional GET to that environment's BFF.
-  - *Auto-check* repeats this every 15 seconds. *Clear device cache* forgets the file and ETag.
-- **Last launch:** the status, with what it means:
-  - **200 first download**
-  - **304 not modified**
-  - **200 content updated**
-  - **200 new ETag, same content**: the site was redeployed for another environment
-  - **400 / 404 / 502**
-
-  It also shows the ETag sent, the ETag received (decoded into file time and size), bytes downloaded, and GitHub's CDN result.
-- **What changed:** keys added, changed or removed compared with the previous cached version.
-- **Device cache:** the stored ETag and `_meta.commitId`, and whether that matches what the site serves now.
-- **Request history** and **All keys**, with new and changed keys flagged.
-- **The environment cards at the top** show which commit each environment serves on GitHub Pages and each BFF's allowlist. Click a card to switch environment.
-
-## Scripts that change content the way a team would
+### 2. Change an existing value
 
 ```sh
-npm run add-key                          # adds puk.section.help-link to every locale file on sit → prints a PR link
-npm run add-key -- --direct              # same, but squash-merged into sit and pushed (fast demo)
-npm run add-key -- --key puk.section.request-puk --value en-US="Get PUK now" --env sit --direct
-                                         # changes an existing value (other locales keep theirs)
-
-npm run promote -- sit qa                # prints the promotion PR link (merge with "Create a merge commit")
-npm run promote -- sit qa --direct       # merges sit into qa with --no-ff and pushes
-npm run promote -- qa uat --direct
-npm run promote -- uat main --direct     # PROD
+npm run add-key -- --key puk.section.request-puk --value fr-CI="Recevoir mon PUK" --direct
 ```
 
-**What `add-key` does:**
-1. Creates `content/<key>-<id>` from the environment branch.
-2. Writes the value into **every** locale file on that branch. The completeness check requires this.
-3. Runs the same validation as CI, then commits.
-4. Then either pushes the branch for a PR, or squash-merges it into the environment branch and pushes (`--direct`).
+After it publishes, **SIT / fr-CI → Launch app** shows **CHANGED** `puk.section.request-puk: "Obtenir mon code PUK" → "Recevoir mon PUK"`. Other languages keep their values.
 
-**What `promote` does:** shows the commits and locale changes that would move up, then either prints the PR link or merges with a merge commit (`--direct`).
+### 3. See validation block a bad change
 
-Both scripts refuse to run with uncommitted changes, and switch back to the branch you were on.
+- `npm run add-key -- --key puk.section.x --value en-US="<b>Hi</b>" --value fr-FR=Salut --value fr-CI=Salut --value pt-PT=Olá` stops before committing: *value contains HTML*.
+- Leaving a language out also stops it: *no --value for fr-CI*.
+- On GitHub, a PR into `sit` that removes a key or adds HTML fails the `validate` check, with an annotation on the file.
 
-## Run it from the command line
+### 4. Promote SIT → QA → UAT → PROD
 
 ```sh
-cd C:\Dev\tms
-
-npm run validate                         # content rules on i18n/
-npm run showcase                         # end-to-end option B scenarios against the live site
-
-npm run bff                              # all four BFFs on 8081-8084 (Ctrl+C to stop)
-node demo/device.mjs --env sit --tag fr-CI --reset    # first launch: 200, stored with its ETag
-node demo/device.mjs --env sit --tag fr-CI            # next launch: 304, no body
-node demo/device.mjs --env prod --tag pt-PT           # 400: pt-PT isn't on PROD's allowlist
+npm run promote -- sit qa --direct   # or without --direct: prints the PR link; merge with "Create a merge commit"
 ```
 
-Or call the BFF directly:
+1. The script lists the commits and locale changes that will move up, then merges with a merge commit and pushes.
+2. After publishing, switch the app to **QA**: the new key and wording arrive with **200 · content updated**.
+3. **QA / pt-PT** still returns **400**: the file is now published in QA, but QA's BFF allowlist doesn't include `pt-PT`. Publishing content and enabling a market are deliberately separate. Add `pt-PT` to `qa.tags` in `bff/config.json` and restart the app to enable it.
+4. `npm run promote -- qa uat --direct`, then `npm run promote -- uat main --direct`. When `main` changes, the publish summary shows PROD as **changed** and the PROD check is skipped, because PROD content is meant to change.
+5. **PROD / fr-CI → Launch app:** **200 · content updated**, and the key is no longer red.
 
-```sh
-curl -i http://localhost:8081/bootstrap/v1/localisation/fr-CI
-curl -i http://localhost:8081/bootstrap/v1/localisation/fr-CI -H 'If-None-Match: "<etag from above>"'
-```
+### 5. Hotfix
 
-The BFF logs one line per request, showing the upstream status and GitHub's CDN cache result (`x-cache`).
+Branch from `main`, open a PR into `main`, and merge. Then back-merge `main → uat`, `uat → qa` and `qa → sit` with PRs, so the next promotion doesn't undo the fix.
 
-### What `npm run showcase` shows
+---
+
+## The demo app
+
+`npm run app` serves the app and runs all four BFFs on one origin (`demo/app-server.mjs`).
+
+| Area | What it shows |
+|---|---|
+| **Environment cards** (top) | The commit each environment serves on GitHub Pages, its files, and its BFF allowlist. Click a card to switch environment. |
+| **Phone** | The PUK and Know-my-number screens rendered from the locale data. **Highlighted:** just changed. **Dotted underline:** from the compiled base file. **Red key name:** the key doesn't exist in this environment. *Show keys* adds the key under every string. |
+| **Last launch** | The status in plain words, the ETag sent and received (decoded into file time and size), bytes downloaded, the BFF's call to GitHub, and GitHub's CDN result. Statuses: **200 first download**, **304 not modified**, **200 content updated**, **200 new ETag, same content**, **400/404/502**. |
+| **What changed** | Keys added, changed (old → new) or removed since the previous cached version. |
+| **Device cache** | The stored ETag, `_meta.commitId` and `publishedAt`, and whether that commit is still what the site serves. |
+| **Request history** | Every launch: ETag sent, status, ETag received, bytes, CDN result. |
+| **All keys** | Every key and value in the active content, filterable, with new and changed keys flagged. |
+
+**Controls:**
+- **Launch app:** renders from the cache first, then makes one conditional GET.
+- **Auto-check:** repeats the launch every 15 seconds.
+- **Clear device cache:** forgets the file and ETag for this environment and language.
+
+> In the real app, new content is kept pending and applied at the next journey mount. The demo applies it immediately, so you can see it.
+
+---
+
+## Scripts
+
+| Command | What it does |
+|---|---|
+| `npm run app` | Demo app and BFFs on http://localhost:8090 |
+| `npm run add-key [-- --direct]` | Adds `puk.section.help-link` to every locale file on `sit`. Validates, commits on a `content/…` branch, then pushes it for a PR, or squash-merges into `sit` and pushes (`--direct`). |
+| `npm run add-key -- --key <journey.path> --value <tag>="…" [--value …] [--env sit\|qa\|uat\|prod] [--direct]` | Adds or changes any key. A new key needs a value for every locale file on that branch. |
+| `npm run promote -- <sit qa \| qa uat \| uat main> [--direct]` | Shows what will be promoted, then prints the PR link or merges with a merge commit and pushes. |
+| `npm run validate` | Runs the content rules on `i18n/` |
+| `npm run showcase` | Plays through eight option B scenarios against the live site in the terminal |
+| `npm run bff` | Starts the four BFFs on ports 8081–8084 for `curl` or `demo/device.mjs` |
+| `node demo/device.mjs --env sit --tag fr-CI [--reset]` | A command-line device: one launch, prints the status, ETag and a value |
+
+`add-key` and `promote` refuse to run with uncommitted changes, and always switch back to the branch you were on.
+
+### What `npm run showcase` checks
 
 | # | Scenario | Expected |
 |---|---|---|
@@ -202,73 +188,101 @@ The BFF logs one line per request, showing the upstream status and GitHub's CDN 
 
 ---
 
-## Demo walkthrough
+## How publishing works
 
-**Starting state:**
-- `main`, `uat` and `qa` contain `en-US`, `fr-FR` and `fr-CI`.
-- `sit` is one commit ahead:
-  - it adds **`pt-PT`**, a new market;
-  - it changes the en-US value of `puk.section.request-puk` from "Request PUK" to "Get my PUK".
-
-Start the app (`npm run app`), open http://localhost:8090 and press **Launch app** once for **SIT / fr-CI** and once for **PROD / fr-CI**. Each gets a first download, so both are cached. The red `puk:section.help-link` under the button shows the key doesn't exist anywhere yet.
-
-### 1. Add a new key in SIT
-
-1. `npm run add-key` (PR: open the printed link and **Squash and merge**), or `npm run add-key -- --direct`.
-2. `trigger-publish` runs on `sit` and starts `publish` from `main` (https://github.com/Programm3r/tms/actions). About a minute later, the SIT card at the top of the app shows the new commit.
-3. **SIT / fr-CI → Launch app:**
-   - **Last launch:** **200 · content updated**, with a different ETag received from the one sent.
-   - **What changed:** `NEW puk.section.help-link`.
-   - **Phone:** the new string is highlighted.
-   - **Launch again:** **304 · not modified**, 0 bytes.
-4. **PROD / fr-CI → Launch app:** **200 · new ETag, same content**. GitHub redeployed the whole site, so PROD's ETags changed, but its content didn't. The key is still red in PROD. See *ETag note* below.
-
-### 2. Change an existing value
-
-```sh
-npm run add-key -- --key puk.section.request-puk --value fr-CI="Recevoir mon PUK" --direct
+```mermaid
+flowchart LR
+    P["push to sit / qa / uat / main<br/>(i18n/** changed)"] --> T["trigger-publish<br/>(runs on that branch)"]
+    T -- "gh workflow run publish.yml --ref main" --> B
+    subgraph Pub["publish (always from main)"]
+        B["build<br/>checkout 4 branches<br/>validate + build out/"] --> C["compare-live<br/>changed envs<br/>PROD check"]
+        C --> U[upload artifact] --> Dp[deploy-pages] --> V["verify-live<br/>ETag + 304 table"]
+    end
 ```
 
-After publishing, **SIT / fr-CI → Launch app** shows **CHANGED** `puk.section.request-puk: "Obtenir mon code PUK" → "Recevoir mon PUK"`.
+- **Always from `main`.** `trigger-publish` only starts `publish` from `main`. An unreviewed workflow change on `sit` can therefore never deploy PROD.
+- **Every run rebuilds all four environments from their branch heads.** If two pushes land close together, the newer queued run replaces the older one. Nothing is lost: the newer run publishes both changes.
+- **Rebuilds are deterministic.** `_meta.publishedAt` is the commit time of the branch head, not the build time, so rebuilding an unchanged branch gives byte-identical files.
+- **PROD check.** If `main` didn't change, every PROD file must be byte-identical to the live file. Otherwise the deploy stops.
+- **No CDN purge (option B).** GitHub clears its own CDN on every Pages deploy. GitHub sends `Cache-Control: max-age=600`.
+- **The `verify` job summary** lists every published file with:
+  - its ETag, decoded into file time and size;
+  - the response to a conditional request (304);
+  - the gzip ETag. It differs from the uncompressed one, which is why the BFF always sends `Accept-Encoding: identity`.
 
-### 3. See the validation block a bad change
+### Branch rules
 
-Open a PR into `sit` that removes a key from `fr-CI.json`, or adds `<b>` to a value. `validate` fails, with an annotation on the file. `add-key` runs the same check locally and refuses to commit.
+- **Promotions use merge commits only (never squash or rebase).** Squashing makes the branch histories drift apart, and every later promotion then conflicts.
+- **Content PRs into `sit` are squash-merged.**
+- **Hotfixes go into `main`** and are back-merged down.
+- **`validate` should be a required check on all four branches.** All environments deploy together, so an invalid file on any branch blocks every environment.
 
-### 4. Promote SIT → QA → UAT → PROD
+---
 
-1. `npm run promote -- sit qa` lists the commits and locale changes that will move up, and prints the PR link. Merge it with **Create a merge commit**. Or add `--direct`.
-2. After publishing, **QA** has the new key and wording, and `pt-PT.json`. Switch the app to QA to see the update.
-3. **QA / pt-PT** still returns **400**: the file is published, but QA's BFF allowlist doesn't include `pt-PT`. Content and market enablement are deliberately separate. Add `pt-PT` to `qa.tags` in `bff/config.json` and restart the app to enable it.
-4. `npm run promote -- qa uat`, then `npm run promote -- uat main`. When `main` changes, the publish summary shows PROD as **changed** and the guard is skipped. That's expected: PROD content is meant to change.
-5. **PROD / fr-CI → Launch app:** **200 · content updated**, and the new key appears in PROD.
+## Repository layout (the same on every branch)
 
-### 5. Hotfix
+```
+i18n/                     source locale files, one per language tag, structured by journey
+  en-US.json              English source: the reference for completeness
+  fr-FR.json, fr-CI.json
+  pt-PT.json              on sit only, until promoted
+scripts/                  used by the workflows
+  validate.mjs            content rules
+  build-site.mjs          builds out/<env>/… from each branch, adds _meta and version.json
+  compare-live.mjs        finds changed environments; PROD check
+  verify-live.mjs         after deploy: waits for the new commits, records ETags and 304 behaviour
+  lib/                    shared helpers
+bff/
+  bff.mjs                 the pass-through BFF (option B)
+  server.mjs              the four BFFs on ports 8081–8084
+  config.json             repository, site URL, per-environment allowlists
+demo/
+  app/, app-server.mjs    the demo app
+  add-key.mjs, promote.mjs content changes and promotions
+  device.mjs, showcase.mjs command-line device and scenario run
+.github/
+  workflows/              validate, trigger-publish, publish
+  CODEOWNERS, pull_request_template.md
+```
 
-Branch from `main`, open a PR into `main`, and merge. Then back-merge with PRs `main → uat`, `uat → qa` and `qa → sit`, so the next promotion doesn't undo the fix.
+---
+
+## Setting it up in another repository
+
+1. Push all four branches (`main`, `uat`, `qa`, `sit`).
+2. Update `repo` and `siteUrl` in `bff/config.json`.
+3. **Actions:** *Settings → Actions → General → Allow all actions and reusable workflows*.
+4. **Pages:** *Settings → Pages → Source:* **GitHub Actions**.
+5. **Restrict deploys:** *Settings → Environments → `github-pages` → Deployment branches*: **`main` only**.
+6. **First publish:** *Actions → publish → Run workflow* (branch `main`). After that, every push that changes `i18n/` publishes automatically.
+7. **Recommended rulesets** (*Settings → Rules → Rulesets*) for `sit`, `qa`, `uat` and `main`:
+   - require a PR;
+   - require the status check **`validate`**;
+   - merge methods: squash on `sit`, merge commit only elsewhere;
+   - block force pushes.
+8. Optional: make **`sit`** the default branch so contributors' PRs target it. Publishing always runs from `main` regardless.
 
 ---
 
 ## ETag note and optional experiment
 
-GitHub Pages builds the ETag from the file's **modification time and size**. Every deploy rewrites every file, so a SIT publish also gives PROD's files new ETags. The content is identical, but PROD devices download their file once more. This is harmless, but wasteful.
+GitHub Pages builds the ETag from the file's **modification time and size**. Every deploy rewrites every file, so a SIT publish also gives PROD's files new ETags. Their content is identical, but PROD devices download their file once more, which is harmless but wasteful. The app shows this as **200 · new ETag, same content**.
 
 **Experiment:** set the repository variable **`PRESERVE_MTIME=true`** (*Settings → Secrets and variables → Actions → Variables*).
-- `build-site.mjs` then sets each environment's file times to its branch head's commit time.
+- `build-site.mjs` sets each environment's file times to its branch head's commit time.
 - `compare-live.mjs` fails a deploy whose new commit time isn't later than the live one, because that could publish new content with an old ETag.
 
-Publish a SIT-only change and compare PROD's ETags in two consecutive `verify` summaries. If they stay the same, GitHub Pages keeps the artifact's file times, and the fix works.
+Publish a SIT-only change and compare PROD's ETags in two consecutive `verify` summaries. If they stay the same, GitHub Pages keeps the uploaded file times, and the fix works.
 
-**Observation (2026-10-01):** GitHub returned the uncompressed ETag `"689c7eee-386e"` for `pages.github.com` once, and `"689c7eef-386e"` on a dozen later requests across different edge servers. The likely cause is GitHub's origin copies holding file times one second apart.
-- **Effect if it happens:** a device sends one copy's ETag and the request reaches another copy, so it gets a 200 instead of a 304. That costs a few KB.
-- **What it can't do:** serve stale content, because a mismatch always returns the current file.
-- **How to watch for it:** compare the ETags shown in the `verify` summary across runs.
+**Observation (2026-10-01):** GitHub once returned `"689c7eee-386e"` for `pages.github.com`, and then `"689c7eef-386e"` on a dozen later requests. The likely cause is two GitHub origin copies with file times one second apart.
+- **Effect if it happens:** a device's ETag doesn't match the copy that answers, so it gets a 200 instead of a 304. That costs a few KB.
+- **What it can't do:** serve stale content.
 
 ---
 
 ## Limitations of this POC
 
-- **All four environment folders are public**, including unreleased SIT, QA and UAT wording.
-- **The BFFs run locally.** In a real deployment each environment's BFF would run in its own environment with `I18N_SITE_URL` and its allowlist set in its configuration.
-- **`demo/device.mjs` uses `i18n/en-US.json` and `i18n/fr-FR.json` as the "compiled base files"**, which in the real app are compiled into the binary.
-- **GitHub Pages limits apply:** 1 GB site, a soft 100 GB/month of bandwidth, and terms that discourage using it as the backend of a commercial service.
+- **All four environment folders are public,** including unreleased SIT, QA and UAT wording.
+- **The BFFs run locally inside the demo app.** In a real deployment each environment's BFF runs in that environment, with its own site URL and allowlist in its configuration.
+- **The "compiled base files" come from the local `i18n/en-US.json` and `fr-FR.json`.** In the real app they are compiled into the binary.
+- **GitHub Pages limits apply:** 1 GB per site, a soft 100 GB of bandwidth per month, and terms that discourage using it as the backend of a commercial service.
