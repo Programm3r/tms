@@ -222,6 +222,17 @@ function renderPhone() {
   $('#renderedFrom').textContent = `Rendered from: ${state.renderedFrom}`;
 }
 
+/** Badges for the ETag the device sent and the one it received: did the file change? */
+function etagBadges(e) {
+  const b = (cls, text, title) => `<span class="badge sm ${cls}" title="${esc(title)}">${esc(text)}</span>`;
+  if (!e.sent && !e.received) return { sent: b('neutral', 'none sent', 'Nothing cached, so no ETag to send'), received: b('neutral', 'none', 'No ETag in the response') };
+  if (!e.sent) return { sent: b('neutral', 'none sent', 'Nothing cached, so no ETag to send'), received: b('info', 'new', 'First ETag for this file on the device') };
+  if (!e.received) return { sent: b('neutral', 'sent', 'The device sent its cached ETag'), received: b('neutral', 'none', 'No ETag in the response') };
+  return e.sent === e.received
+    ? { sent: b('ok', 'still current', 'The cached ETag matches the current file'), received: b('ok', 'unchanged', 'Same ETag as sent: the file has not changed') }
+    : { sent: b('warn', 'outdated', 'The cached ETag no longer matches the current file'), received: b('warn', 'changed', 'Different ETag from the one sent: the file changed') };
+}
+
 const OUTCOME = {
   first: ['ok', '200 · first download', 'Stored in the device cache together with its ETag.'],
   updated: ['warn', '200 · content updated', 'The ETag changed and the content is different. Cache and ETag were replaced together.'],
@@ -235,14 +246,14 @@ function renderLast() {
   if (!e) return;
   const [kind, label, text] = OUTCOME[e.outcome];
   const statusLabel = e.outcome === 'error' ? `${e.status} · ${label}` : label;
-  const sameEtag = e.sent && e.received ? (e.sent === e.received ? 'same as sent' : 'different from sent') : '';
+  const tags = etagBadges(e);
   const decoded = decodeEtag(e.received ?? e.sent);
   $('#last').innerHTML = `
     <div class="headline"><span class="badge ${kind}">${esc(statusLabel)}</span><span class="text">${esc(text)}</span></div>
     <dl class="facts">
       <dt>Request</dt><dd class="mono">GET /bff/${esc(e.env)}/bootstrap/v1/localisation/${esc(e.tag)}</dd>
-      <dt>If-None-Match sent</dt><dd class="mono">${esc(e.sent ?? '— (nothing cached)')}</dd>
-      <dt>ETag received</dt><dd class="mono">${esc(e.received ?? '—')} ${sameEtag ? `<span class="muted">(${sameEtag})</span>` : ''}</dd>
+      <dt>If-None-Match sent</dt><dd><span class="mono">${esc(e.sent ?? '—')}</span> ${tags.sent}</dd>
+      <dt>ETag received</dt><dd><span class="mono">${esc(e.received ?? '—')}</span> ${tags.received}</dd>
       ${decoded ? `<dt>ETag decoded</dt><dd>file time ${esc(decoded.mtime.toISOString().replace('.000Z', 'Z'))}, ${decoded.size} bytes <span class="muted">(GitHub Pages: "&lt;mtime&gt;-&lt;size&gt;")</span></dd>` : ''}
       <dt>Body</dt><dd>${e.bytes ?? 0} bytes in ${e.ms ?? '?'} ms</dd>
       <dt>BFF → GitHub</dt><dd>${esc(e.upstream ?? '—')} ${e.cdn ? `<span class="muted">(GitHub CDN: ${esc(e.cdn)})</span>` : ''}</dd>
@@ -301,9 +312,9 @@ function renderHistory() {
     <tr data-i="${i}" class="${e === state.selected ? 'selected' : ''}" title="Show this call in the data flow diagram">
       <td>${time(e.at)}</td>
       <td>${esc(e.env)} / ${esc(e.tag)}</td>
-      <td class="mono">${esc(e.sent ?? '—')}</td>
+      <td><span class="mono">${esc(e.sent ?? '—')}</span> ${etagBadges(e).sent}</td>
       <td><strong>${esc(e.status)}</strong></td>
-      <td class="mono">${esc(e.received ?? '—')}</td>
+      <td><span class="mono">${esc(e.received ?? '—')}</span> ${etagBadges(e).received}</td>
       <td>${e.bytes ?? 0}</td>
       <td>${esc(e.cdn ?? '—')}</td>
       <td>${OUTCOME_LABEL[e.outcome]}</td>
