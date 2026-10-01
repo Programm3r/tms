@@ -4,7 +4,7 @@
 //   3. 304 → keep the cache; 200 → replace content and ETag together.
 // The device cache is localStorage, keyed by environment and language tag.
 
-import { flowSvg } from './flow.js';
+import { FlowPlayer } from './flow.js';
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -20,6 +20,7 @@ const cacheSet = (k, v) => { memoryCache.set(k, v); store.set(k, v); };
 const cacheDel = k => { memoryCache.delete(k); store.del(k); };
 
 const cfg = await (await fetch('/config.json', { cache: 'no-store' })).json();
+const player = new FlowPlayer(document.querySelector('#flow'));
 const ENVS = Object.keys(cfg.environments);
 const BRANCH = { sit: 'sit', qa: 'qa', uat: 'uat', prod: 'main' };
 const TAGS = ['en-US', 'fr-FR', 'fr-CI', 'pt-PT'];
@@ -292,7 +293,7 @@ function renderFlow() {
   if (!e) return;
   const isLatest = e === state.history[0];
   $('#flowCaption').innerHTML = `<strong>${esc(e.env.toUpperCase())} / ${esc(e.tag)}</strong> at ${time(e.at)} · ${esc(e.status)} ${esc(OUTCOME_LABEL[e.outcome])} · ${e.ms ?? '?'} ms${isLatest ? '' : ' <span class="muted">(older call)</span>'}`;
-  $('#flow').innerHTML = flowSvg(e);
+  if (player.entry !== e) player.load(e);
 }
 
 function renderHistory() {
