@@ -53,7 +53,8 @@
       "info-puk-when-blocked-title": "What happens when blocked?",
       "info-puk-when-blocked-description": "You can only make emergency calls. All other phone features are restricted.",
       "info-puk-unlock-title": "How to unlock your SIM",
-      "info-puk-unlock-description": "Enter your PUK code when prompted to restore full access."
+      "info-puk-unlock-description": "Enter your PUK code when prompted to restore full access.",
+      "help-link": "Need help? Chat to us in the MTN app."
     }
   }
 }

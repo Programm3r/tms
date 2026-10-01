@@ -53,7 +53,8 @@
       "info-puk-when-blocked-title": "Que se passe-t-il lorsqu'une carte SIM est bloquée ?",
       "info-puk-when-blocked-description": "Seuls les appels d'urgence sont autorisés. Toutes les autres fonctionnalités du téléphone sont restreintes.",
       "info-puk-unlock-title": "Comment débloquer votre carte SIM ?",
-      "info-puk-unlock-description": "Saisissez votre code PUK lorsqu'il vous est demandé afin de rétablir l'accès complet à votre carte SIM"
+      "info-puk-unlock-description": "Saisissez votre code PUK lorsqu'il vous est demandé afin de rétablir l'accès complet à votre carte SIM",
+      "help-link": "Besoin d'aide ? Discutez avec nous dans l'application MTN."
     }
   }
 }
