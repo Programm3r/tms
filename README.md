@@ -94,7 +94,7 @@ https://programm3r.github.io/tms/ lists which commit each environment currently 
 npm run add-key -- --direct          # or: npm run add-key  → prints a PR link; merge with "Squash and merge"
 ```
 
-1. The script adds `puk.section.help-link` to **every** locale file on `sit`, validates, and pushes.
+1. The script adds `puk.section.help-link` to **every** locale file on `sit`, validates, and pushes. Run it again later and it **rewords** the key in every language instead. Use that for step 2, or any time you want another visible change.
 2. `trigger-publish` runs on `sit` and starts `publish` from `main` (https://github.com/Programm3r/tms/actions). After about a minute, the **SIT** card at the top of the app shows the new commit.
 3. **SIT / fr-CI → Launch app:**
    - **200 · content updated**, with *ETag received* different from *If-None-Match sent*.
@@ -168,7 +168,7 @@ Branch from `main`, open a PR into `main`, and merge. Then back-merge `main → 
 | Command | What it does |
 |---|---|
 | `npm run app` | Demo app and BFFs on http://localhost:8090 |
-| `npm run add-key [-- --direct]` | Adds `puk.section.help-link` to every locale file on `sit`. Validates, commits on a `content/…` branch, then pushes it for a PR, or squash-merges into `sit` and pushes (`--direct`). |
+| `npm run add-key [-- --direct] [--dry-run]` | The demo key `puk.section.help-link` on `sit`. **If `sit` doesn't have it yet, it's added** in every language. **If it's already there, every language switches to a different wording at random**, so each run is a visible content change. Validates, commits on a `content/…` branch, then pushes it for a PR, or squash-merges into `sit` and pushes (`--direct`). `--dry-run` shows and validates the change, then discards it. |
 | `npm run add-key -- --key <journey.path> --value <tag>="…" [--value …] [--env sit\|qa\|uat\|prod] [--direct]` | Adds or changes any key. A new key needs a value for every locale file on that branch. |
 | `npm run promote -- <sit qa \| qa uat \| uat main> [--direct]` | Shows what will be promoted, then prints the PR link or merges with a merge commit and pushes. |
 | `npm run validate` | Runs the content rules on `i18n/` |
