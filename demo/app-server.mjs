@@ -12,7 +12,7 @@ import { createBffHandler, loadConfig } from '../bff/bff.mjs';
 
 const config = loadConfig();
 const port = Number(process.env.PORT ?? 8090);
-const handlers = Object.fromEntries(Object.values(config.environments).map(e => [e.env, createBffHandler({ ...e, trace: true })]));
+const handlers = Object.fromEntries(Object.values(config.environments).map(e => [e.env, createBffHandler({ ...e, trace: true, allowCdnBypass: true })]));
 const STATIC = {
   '/': ['app/index.html', 'text/html; charset=utf-8'],
   '/app.css': ['app/app.css', 'text/css; charset=utf-8'],

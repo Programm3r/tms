@@ -11,6 +11,7 @@
 // - Upstream errors become 502, timeouts 504. Partial content is never returned.
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
+import { cdnBypassUrl } from '../scripts/lib/site.mjs';
 
 const CACHE_CONTROL = 'public, max-age=300, must-revalidate';
 const ROUTE = /^\/bootstrap\/v1\/localisation\/([^/]+)$/;
@@ -32,9 +33,12 @@ export function createBff(options) {
 
 /**
  * The request handler on its own, so the demo app server can host every environment's BFF.
- * trace: true adds an x-trace response header describing what the BFF did (demo app only).
+ * Demo app only:
+ *   trace: true            adds an x-trace response header describing what the BFF did
+ *   allowCdnBypass: true   honours "x-demo-bypass-cdn: 1" by requesting an uncached path variant,
+ *                          so GitHub's CDN misses and the origin answers (never in the real BFF)
  */
-export function createBffHandler({ env, baseUrl, tags, timeoutMs = 2000, log = console.log, trace = false }) {
+export function createBffHandler({ env, baseUrl, tags, timeoutMs = 2000, log = console.log, trace = false, allowCdnBypass = false }) {
   const allowlist = new Set(tags);
 
   return async (req, res) => {
@@ -59,10 +63,11 @@ export function createBffHandler({ env, baseUrl, tags, timeoutMs = 2000, log = c
     steps.allowlisted = allowlist.has(tag);
     if (!steps.allowlisted) return error(400, 'unsupported_tag', { tag });
 
-    const url = new URL(`${tag}.json`, baseUrl);
+    const bypass = allowCdnBypass && req.headers['x-demo-bypass-cdn'] === '1';
+    const url = new URL(bypass ? cdnBypassUrl(new URL(`${tag}.json`, baseUrl).href) : new URL(`${tag}.json`, baseUrl));
     const requestHeaders = { 'accept-encoding': 'identity', ...(inm ? { 'if-none-match': inm } : {}) };
     const upstreamStarted = performance.now();
-    steps.upstream = { url: url.href, request: requestHeaders };
+    steps.upstream = { url: url.href, request: requestHeaders, bypass };
     let upstream;
     try {
       upstream = await fetch(url, { headers: requestHeaders, redirect: 'manual', signal: AbortSignal.timeout(timeoutMs) });

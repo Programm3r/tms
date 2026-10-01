@@ -112,7 +112,7 @@ async function launch() {
   try {
     const res = await fetch(`/bff/${env}/bootstrap/v1/localisation/${encodeURIComponent(tag)}`, {
       cache: 'no-store',
-      headers: cached ? { 'If-None-Match': cached.etag } : {},
+      headers: { ...(cached ? { 'If-None-Match': cached.etag } : {}), ...($('#bypass').checked ? { 'x-demo-bypass-cdn': '1' } : {}) },
     });
     const text = await res.text();
     Object.assign(entry, {
@@ -391,6 +391,8 @@ $('#clear').addEventListener('click', () => {
   render();
 });
 $('#showKeys').addEventListener('change', renderPhone);
+$('#bypass').checked = store.get('ui:bypass') === true;
+$('#bypass').addEventListener('change', e => store.set('ui:bypass', e.target.checked));
 $('#history').addEventListener('click', e => {
   const row = e.target.closest('tr[data-i]');
   if (!row) return;

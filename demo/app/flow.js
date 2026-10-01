@@ -58,6 +58,7 @@ export function buildSteps(e) {
     'Build the upstream request:',
     'Accept-Encoding: identity (forced)',
     e.sent ? 'If-None-Match: forwarded unchanged' : 'If-None-Match: none to forward',
+    t.upstream?.bypass && 'Demo: bypass the GitHub CDN with an uncached path variant (extra slashes)',
   ]);
 
   const u = t.upstream;
@@ -85,9 +86,9 @@ export function buildSteps(e) {
       'The origin is not contacted',
     ]);
   } else {
-    note('cdn', [`Cache ${xCache || 'MISS'} at ${pop || 'the edge'}`, 'Fetch the file from the origin']);
+    note('cdn', [`Cache ${xCache || 'MISS'} at ${pop || 'the edge'}`, u.bypass && 'This path variant is not cached yet', 'Fetch the file from the origin']);
     msg('cdn', 'origin', `GET ${file}`, [`GET ${path}`], 'req');
-    note('origin', [`${file} in the deployed site`, h['last-modified'] && `Last-Modified ${h['last-modified']}`, 'ETag = "<file time hex>-<size hex>"']);
+    note('origin', [`${file} in the deployed site`, u.bypass && 'Extra slashes ignored: same file', h['last-modified'] && `Last-Modified ${h['last-modified']}`, 'ETag = "<file time hex>-<size hex>"']);
     msg('origin', 'cdn', `file · ETag ${etagShort(h.etag)}`, ['File and ETag', h.etag], 'plain');
     note('cdn', ['Store the copy at the edge', u.status === 304 ? 'If-None-Match equals the ETag → 304' : 'Answer 200 with the file']);
   }

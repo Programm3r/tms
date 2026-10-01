@@ -153,7 +153,11 @@ Branch from `main`, open a PR into `main`, and merge. Then back-merge `main → 
 **Controls:**
 - **Launch app:** renders from the cache first, then makes one conditional GET.
 - **Auto-check:** repeats the launch every 15 seconds.
-- **Clear device cache:** forgets the file and ETag for this environment and language.
+- **Clear device cache:** forgets the file and ETag for this environment and language. The next launch is a 200 with the full file. GitHub's CDN can still answer it from its own cache, so the origin isn't necessarily contacted.
+- **Bypass GitHub CDN** (demo only): the BFF asks GitHub for a path variant with extra slashes, e.g. `/tms/sit///i18n/v1//fr-CI.json`.
+  - **Why it works:** GitHub's CDN hasn't cached that variant, so it fetches from the **origin**, which ignores the extra slashes and serves the same file and ETag. The origin block lights up in the data flow.
+  - **Why it's needed:** query strings and `Cache-Control: no-cache` don't bypass GitHub's CDN.
+  - **Caution:** this is undocumented GitHub behaviour. The BFF only honours it when the demo app server enables it; the real BFF must never use it.
 
 > In the real app, new content is kept pending and applied at the next journey mount. The demo applies it immediately, so you can see it.
 
