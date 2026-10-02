@@ -292,6 +292,10 @@ Leave the variable unset. Only these avoid the extra downloads:
 - **Separate sites (Strategy 2):** a SIT publish can't touch PROD's files.
 - **Content-hash ETags:** the BFF's `content` mode, below. It changes the "ETag passed through unchanged" design.
 
+**Observation (2026-10-01):** GitHub once returned `"689c7eee-386e"` for `pages.github.com`, and then `"689c7eef-386e"` on a dozen later requests. The likely cause is two GitHub origin copies with file times one second apart.
+- **Effect if it happens:** a device's ETag doesn't match the copy that answers, so it gets a 200 instead of a 304. That costs a few KB. In content-hash mode only the BFF downloads again; the device still gets a 304.
+- **What it can't do:** serve stale content.
+
 ### ETag modes
 
 Set `etagMode` in `bff/config.json`, at the top level or per environment.
@@ -305,11 +309,18 @@ Set `etagMode` in `bff/config.json`, at the top level or per environment.
 | What the BFF keeps | Nothing | Per tag: GitHub's ETag, the hash and the body (a few KB, in memory). If that memory is lost, the next request fetches the whole file from GitHub once. The device still gets a 304 if its hash matches. |
 | Gzip vs identity ETags | Matter: the BFF fixes `Accept-Encoding: identity` | Don't matter to the device |
 
-**Content-hash mode limitation:** `_meta` holds the environment's **branch head** commit. Any commit on a branch therefore changes the bytes, and so the hash, of every locale file in that environment, even if only one language changed. Other environments are unaffected. If you want a hash to change only when that language changes, build `_meta` from the last commit that touched each file (`git log -1 -- i18n/<tag>.json`).
+**What happens after a publish that didn't change this file** (e.g. PROD after a SIT-only publish):
+1. The device sends its hash in `If-None-Match`.
+2. The BFF asks GitHub with the GitHub ETag it stored. The deploy gave the file a new GitHub ETag, so **GitHub sends the BFF the whole file (200)**, although its content didn't change.
+3. The BFF hashes it. The hash equals the device's, so **the BFF answers the device with a 304**, not GitHub. The device downloads nothing.
+4. The BFF stores GitHub's new ETag. Until the next deploy, GitHub answers the BFF with a 304 and the BFF uses its stored hash.
 
-**Observation (2026-10-01):** GitHub once returned `"689c7eee-386e"` for `pages.github.com`, and then `"689c7eef-386e"` on a dozen later requests. The likely cause is two GitHub origin copies with file times one second apart.
-- **Effect if it happens:** a device's ETag doesn't match the copy that answers, so it gets a 200 instead of a 304. That costs a few KB.
-- **What it can't do:** serve stale content.
+**Content-hash mode limitations:**
+- **The BFF still downloads every file once after every deploy.** Each BFF instance downloads each language it serves, even when the file didn't change. Every instance does this separately, after scaling out or a restart, because the stored ETags are in memory. The saving is in device downloads, not in BFF → GitHub traffic, which is about instances × languages × ~3.5 KB per deploy.
+- **The BFF is no longer a pure pass-through.** It keeps state, computes hashes and answers the 304 itself. GitHub's 304 only reaches the BFF.
+- **If GitHub's ETag flips between origin copies** (observation above), the BFF downloads the file on each flip. Devices still get a 304.
+- **Switching an environment's mode makes every device download its file once.** The device's stored ETag is the other kind, so it doesn't match.
+- **`_meta` holds the environment's branch head commit.** Any commit on a branch therefore changes the bytes, and so the hash, of every locale file in that environment, even if only one language changed. Other environments are unaffected. If you want a hash to change only when that language changes, build `_meta` from the last commit that touched each file (`git log -1 -- i18n/<tag>.json`).
 
 ---
 
