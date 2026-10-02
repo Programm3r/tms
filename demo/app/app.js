@@ -252,7 +252,7 @@ const OUTCOME = {
   error: ['bad', 'error', 'The device keeps what it has (cache or compiled base file).'],
 };
 const OUTCOME_CONTENT = {
-  'same-content': ['info', '200 · new hash, same keys', 'Only _meta changed (this environment\'s branch moved on), which changes the file\'s bytes and so its hash. Every key and value is the same.'],
+  'same-content': ['info', '200 · new hash, same keys', 'Only _meta changed: a newer commit touched this file without changing any key or value (or the file was cached before _meta became per file). That changes the bytes and so the hash.'],
   unchanged: ['ok', '304 · not modified', 'The BFF compared the hash of the current file with If-None-Match; nothing was downloaded.'],
 };
 const githubEtagChanged = e => Boolean(e.github?.before && e.github.etag && e.github.before !== e.github.etag);
@@ -329,7 +329,9 @@ function renderCache() {
     return;
   }
   const meta = c.content?._meta ?? {};
-  const upToDate = live ? (live.commitId === meta.commitId ? '<span class="badge ok">matches what the site serves</span>' : '<span class="badge warn">site has a newer commit: launch to update</span>') : '';
+  // version.json lists each file's last commit; older sites only have the branch head.
+  const liveCommit = live?.files ? live.files[state.tag]?.commitId : live?.commitId;
+  const upToDate = live ? (liveCommit === meta.commitId ? '<span class="badge ok">matches what the site serves</span>' : '<span class="badge warn">site has a newer version of this file: launch to update</span>') : '';
   $('#cache').innerHTML = `
     <dl class="facts">
       <dt>Key</dt><dd class="mono">${esc(cacheKey(state.env, state.tag))}</dd>

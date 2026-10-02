@@ -4,8 +4,10 @@
 //                                      [--guard prod] [--preserve-mtime]
 //
 // 1. Changed environments: the branch head differs from the live version.json.
-// 2. PROD guard: if main did not change, every PROD file must be byte-identical to the live one.
-//    If not, a workflow or script change is about to alter PROD content, and the deploy stops.
+// 2. PROD guard: if no PROD locale file changed, every PROD file must be byte-identical to the live
+//    one. If not, a workflow or script change is about to alter PROD content, and the deploy stops.
+//    "No locale file changed" means main did not change, or (once the live version.json lists
+//    per-file commits) main changed but every file's last commit is the same as live.
 // 3. With --preserve-mtime: a changed environment's commit time must be later than the live one,
 //    otherwise new content could be served with an old ETag.
 //
@@ -44,7 +46,12 @@ for (const env of opt.envs.split(',')) {
     failed = true;
   }
 
-  if (env === opt.guard && live && !isChanged) {
+  const sameFiles = Boolean(live?.files && local.files)
+    && JSON.stringify(Object.keys(local.files).sort()) === JSON.stringify(Object.keys(live.files).sort())
+    && Object.entries(local.files).every(([tag, f]) => live.files[tag].commitId === f.commitId);
+  if (env === opt.guard && isChanged && sameFiles) console.log(`${env}: branch moved, but no locale file changed: checking that the files are byte-identical`);
+
+  if (env === opt.guard && live && (!isChanged || sameFiles)) {
     const tags = new Set([...local.tags, ...live.tags]);
     let identical = true;
     for (const tag of tags) {
@@ -52,7 +59,7 @@ for (const env of opt.envs.split(',')) {
       const res = await get(`${site}/${env}/i18n/v1/${tag}.json`, { bust: true });
       const served = res.ok ? Buffer.from(await res.arrayBuffer()) : null;
       if (!built || !served || !built.equals(served)) {
-        console.log(`::error::PROD guard: ${tag}.json would change although main did not (${!built ? 'removed' : !served ? 'added' : 'content differs'})`);
+        console.log(`::error::PROD guard: ${tag}.json would change although no locale file on main did (${!built ? 'removed' : !served ? 'added' : 'content differs'})`);
         identical = false;
         failed = true;
       }

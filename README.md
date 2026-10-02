@@ -65,7 +65,7 @@ flowchart LR
 1. **Content** lives in `i18n/<tag>.json` on each environment branch, structured by journey (`kmn`, `puk`).
 2. **Publishing:**
    - A push that changes `i18n/` on any environment branch starts the `publish` workflow, which always runs from `main`.
-   - `publish` checks out all four branches, validates them, and builds `/<env>/i18n/v1/<tag>.json`, adding `_meta` with the commit and its time.
+   - `publish` checks out all four branches, validates them, and builds `/<env>/i18n/v1/<tag>.json`, adding `_meta` with the last commit that changed that file, and its time.
    - It deploys everything to GitHub Pages in one go.
 3. **Delivery:** the demo app plays the device. On each launch it makes one conditional GET to its environment's BFF. The BFF forwards it to GitHub Pages and passes the answer back unchanged.
 
@@ -128,7 +128,7 @@ npm run promote -- sit qa --direct   # or without --direct: prints the PR link; 
 1. The script lists the commits and locale changes that will move up, then merges with a merge commit and pushes.
 2. After publishing, switch the app to **QA**: the new key and wording arrive with **200 · content updated**.
 3. **QA / pt-PT** still returns **400**: the file is now published in QA, but QA's BFF allowlist doesn't include `pt-PT`. Publishing content and enabling a market are deliberately separate. Add `pt-PT` to `qa.tags` in `bff/config.json` and restart the app to enable it.
-4. `npm run promote -- qa uat --direct`, then `npm run promote -- uat main --direct`. When `main` changes, the publish summary shows PROD as **changed** and the PROD check is skipped, because PROD content is meant to change.
+4. `npm run promote -- qa uat --direct`, then `npm run promote -- uat main --direct`. When `main` changes, the publish summary shows PROD as **changed**. The PROD check is skipped because PROD's locale files changed, and PROD content is meant to change.
 5. **PROD / fr-CI → Launch app:** **200 · content updated**, and the key is no longer red.
 
 ### 5. Hotfix
@@ -145,10 +145,10 @@ Branch from `main`, open a PR into `main`, and merge. Then back-merge `main → 
 |---|---|
 | **Environment cards** (top) | The commit each environment serves on GitHub Pages, its files, and its BFF allowlist. Click a card to switch environment. |
 | **Phone** | The PUK and Know-my-number screens rendered from the locale data. **Highlighted:** just changed. **Dotted underline:** from the compiled base file. **Red key name:** the key doesn't exist in this environment. *Show keys* adds the key under every string. |
-| **Last launch** | The status in plain words, the ETag sent and received (decoded into file time and size), bytes downloaded, the BFF's call to GitHub, and GitHub's CDN result. Statuses: **200 first download**, **304 not modified**, **200 content updated**, **200 new ETag, same content**, **400/404/502**. In content-hash mode it also shows GitHub's ETag as the BFF saw it, and whether it changed since the BFF last fetched. **200 new hash, same keys** means only `_meta` changed, because the environment's branch moved on. |
+| **Last launch** | The status in plain words, the ETag sent and received (decoded into file time and size), bytes downloaded, the BFF's call to GitHub, and GitHub's CDN result. Statuses: **200 first download**, **304 not modified**, **200 content updated**, **200 new ETag, same content**, **400/404/502**. In content-hash mode it also shows GitHub's ETag as the BFF saw it, and whether it changed since the BFF last fetched. **200 new hash, same keys** means only `_meta` changed: a newer commit touched the file without changing any key or value. |
 | **Data flow for this call** | An animated view of the selected call across four blocks: device app, BFF, GitHub CDN edge and GitHub Pages origin. Each request (over the top, blue) and response (underneath, green, or red for errors) travels between the blocks as a labelled packet, e.g. `GET fr-CI · If-None-Match "6abe…"`. The block that acts lights up and shows what it did:<br/>• the device's cache lookup;<br/>• the BFF's allowlist check and the upstream request it built;<br/>• a CDN cache hit (which edge server, how old) or a miss that goes on to the origin;<br/>• *pass through unchanged, store nothing*;<br/>• what the device did with the answer.<br/>Blocks the call never reaches are greyed out. Replay, pause, step (◀ ▶) and speed controls sit above it. Click a row in *Request history* to replay another call. |
 | **What changed** | Keys added, changed (old → new) or removed since the previous cached version. |
-| **Device cache** | The stored ETag, `_meta.commitId` and `publishedAt`, and whether that commit is still what the site serves. |
+| **Device cache** | The stored ETag, `_meta.commitId` and `publishedAt`, and whether that file's commit is still what the site serves. |
 | **Request history** | Every launch: ETag sent, status, ETag received, bytes, CDN result. |
 | **All keys** | Every key and value in the active content, filterable, with new and changed keys flagged. |
 
@@ -211,8 +211,13 @@ flowchart LR
 
 - **Always from `main`.** `trigger-publish` only starts `publish` from `main`. An unreviewed workflow change on `sit` can therefore never deploy PROD.
 - **Every run rebuilds all four environments from their branch heads.** If two pushes land close together, the newer queued run replaces the older one. Nothing is lost: the newer run publishes both changes.
-- **Rebuilds are deterministic.** `_meta.publishedAt` is the commit time of the branch head, not the build time, so rebuilding an unchanged branch gives byte-identical files.
-- **PROD check.** If `main` didn't change, every PROD file must be byte-identical to the live file. Otherwise the deploy stops.
+- **`_meta` is per file.** Each file's `_meta` holds the last commit that changed that file, and that commit's time (not the build time):
+  - **A commit that doesn't touch a file leaves its bytes unchanged.** That includes a code change on `main`, or a change to another language.
+  - **A promotion keeps the original commit.** A merge commit doesn't count as changing the file, so the same content has the same bytes in every environment.
+  - **Rebuilding an unchanged branch gives byte-identical files.**
+  - **The workflow needs full history.** It checks out each branch with `fetch-depth: 0`, and `build-site.mjs` refuses a shallow clone.
+  - `version.json` still describes the branch head, and lists each file's commit under `files`.
+- **PROD check.** If no PROD locale file changed, every PROD file must be byte-identical to the live file. Otherwise the deploy stops. "No locale file changed" means either `main` didn't change, or `main` changed (e.g. a code commit) but every file's commit in `version.json` is the same as live.
 - **No CDN purge (option B).** GitHub clears its own CDN on every Pages deploy. GitHub sends `Cache-Control: max-age=600`.
 - **The `verify` job summary** lists every published file with:
   - its ETag, decoded into file time and size;
@@ -237,7 +242,7 @@ i18n/                     source locale files, one per language tag, structured 
   pt-PT.json              on sit only, until promoted
 scripts/                  used by the workflows
   validate.mjs            content rules
-  build-site.mjs          builds out/<env>/… from each branch, adds _meta and version.json
+  build-site.mjs          builds out/<env>/… from each branch, adds per-file _meta and version.json
   compare-live.mjs        finds changed environments; PROD check
   verify-live.mjs         after deploy: waits for the new commits, records ETags and 304 behaviour
   lib/                    shared helpers
@@ -338,7 +343,7 @@ The BFF's `Cache-Control: public, max-age=300` response header isn't a BFF cache
 - **The BFF is no longer a pure pass-through.** It keeps state, computes hashes and answers the 304 itself. GitHub's 304 only reaches the BFF.
 - **If GitHub's ETag flips between origin copies** (observation above), the BFF downloads the file on each flip. Devices still get a 304.
 - **Switching an environment's mode makes every device download its file once.** The device's stored ETag is the other kind, so it doesn't match.
-- **`_meta` holds the environment's branch head commit.** Any commit on a branch therefore changes the bytes, and so the hash, of every locale file in that environment, even if only one language changed. Other environments are unaffected. If you want a hash to change only when that language changes, build `_meta` from the last commit that touched each file (`git log -1 -- i18n/<tag>.json`).
+- **A commit that touches a file without changing any key or value still changes its hash.** Examples are a formatting change, or a change followed by its revert. `_meta` holds the file's last commit, so the bytes differ. Devices download the file once.
 
 ---
 

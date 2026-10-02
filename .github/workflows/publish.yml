@@ -35,18 +35,19 @@ jobs:
       - name: Checkout tooling (main)
         uses: actions/checkout@v4
         with: { ref: main, path: tools }
+      # Full history (fetch-depth: 0): each file's _meta is the last commit that changed it.
       - name: Checkout sit
         uses: actions/checkout@v4
-        with: { ref: sit, path: src/sit }
+        with: { ref: sit, path: src/sit, fetch-depth: 0 }
       - name: Checkout qa
         uses: actions/checkout@v4
-        with: { ref: qa, path: src/qa }
+        with: { ref: qa, path: src/qa, fetch-depth: 0 }
       - name: Checkout uat
         uses: actions/checkout@v4
-        with: { ref: uat, path: src/uat }
+        with: { ref: uat, path: src/uat, fetch-depth: 0 }
       - name: Checkout main (PROD)
         uses: actions/checkout@v4
-        with: { ref: main, path: src/prod }
+        with: { ref: main, path: src/prod, fetch-depth: 0 }
 
       - uses: actions/setup-node@v4
         with:
