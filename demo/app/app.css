@@ -192,13 +192,30 @@ ul.diff .old { text-decoration: line-through; color: var(--muted); }
 .fp-sub { font: 11px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
 .fp-state { margin-top: 6px; font: 11.5px/1.45 var(--mono); color: var(--text); overflow-wrap: anywhere; }
 .fp-block.idle { opacity: .45; border-style: dashed; }
-.fp-block.sending { border-color: var(--accent); }
-.fp-block.focus { border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent); transform: translateY(-2px); }
-.fp-block.focus .fp-icon svg { stroke: var(--accent); }
-.fp-block.t-ok.focus { border-color: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 25%, transparent); }
-.fp-block.t-warn.focus { border-color: var(--warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 25%, transparent); }
+/* Highlight colour follows the step: request blue, response green, error red, warning amber. */
+.fp-block { --hl: var(--accent); }
+.fp-block[data-hl="ok"] { --hl: var(--ok); }
+.fp-block[data-hl="warn"] { --hl: var(--warn); }
+.fp-block[data-hl="bad"] { --hl: var(--bad); }
+.fp-block[data-hl="plain"] { --hl: var(--muted); }
+/* visited: the call has passed through · sending: a packet is leaving · incoming: on its way here · focus: here now */
+.fp-block.visited { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 .fp-block.t-bad { border-color: var(--bad); }
-.fp-block.t-bad.focus { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bad) 25%, transparent); }
+.fp-block.sending { border-color: var(--hl); background: color-mix(in srgb, var(--hl) 6%, var(--surface)); }
+.fp-block.incoming { border-color: var(--hl); border-style: dashed; animation: fp-await 1s ease-in-out infinite; }
+.fp-block.focus {
+  border-color: var(--hl); background: color-mix(in srgb, var(--hl) 13%, var(--surface));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--hl) 30%, transparent); transform: translateY(-2px);
+}
+.fp-block.focus .fp-icon svg, .fp-block.sending .fp-icon svg, .fp-block.incoming .fp-icon svg { stroke: var(--hl); }
+@keyframes fp-await { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--hl) 25%, transparent); } }
+.fp-badge {
+  position: absolute; top: -11px; right: -11px; display: none; place-items: center; width: 22px; height: 22px;
+  border-radius: 50%; background: color-mix(in srgb, var(--accent) 45%, var(--border)); color: var(--accent-text);
+  font-size: 11px; font-weight: 700; border: 2px solid var(--surface);
+}
+.fp-block.visited .fp-badge { display: grid; }
+.fp-block.focus .fp-badge, .fp-block.sending .fp-badge { background: var(--hl); }
 .fp-block.receive { animation: fp-pulse .6s ease-out; }
 @keyframes fp-pulse { 0% { transform: scale(1.04); } 100% { transform: scale(1) translateY(-2px); } }
 
@@ -227,7 +244,7 @@ ul.diff .old { text-decoration: line-through; color: var(--muted); }
 .fp-n.fp-ok { background: var(--ok); } .fp-n.fp-bad { background: var(--bad); } .fp-n.fp-warn { background: var(--warn); } .fp-n.fp-plain { background: var(--muted); }
 @media (prefers-reduced-motion: reduce) {
   .fp-wire.active { animation: none; }
-  .fp-block, .fp-block.receive { transition: none; animation: none; transform: none; }
+  .fp-block, .fp-block.receive, .fp-block.incoming { transition: none; animation: none; transform: none; }
 }
 table.history tbody tr { cursor: pointer; }
 table.history tbody tr:hover td { background: var(--surface-2); }

@@ -1,6 +1,9 @@
 // Animated data flow for one launch. Four blocks (device, BFF, GitHub CDN edge, GitHub Pages origin);
 // each request or response travels between them as a labelled packet, and the block that acts lights
 // up and shows what it did. Requests travel over the top, responses come back underneath.
+// Block highlighting follows the call: the block it is at now is filled, the block a packet is
+// heading to has a pulsing dashed outline, and every block it has passed through keeps a numbered
+// badge (1, 2, 3 …) in the order it was reached.
 // Built from the call's real values: the device's own bookkeeping plus the BFF's x-trace header.
 // In content-hash mode the BFF talks to GitHub with its own stored ETag and compares the hash itself.
 
@@ -142,6 +145,7 @@ export class FlowPlayer {
     this.runId = 0;
     this.index = -1;
     this.steps = [];
+    this.order = new Map();   // block → the order the call first reached it
     this.entry = null;
     this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -161,6 +165,7 @@ export class FlowPlayer {
           <svg class="fp-wires" aria-hidden="true"></svg>
           ${BLOCKS.map(b => `
             <div class="fp-block" data-b="${b}">
+              <span class="fp-badge" aria-hidden="true"></span>
               <div class="fp-icon">${ICONS[b]}</div>
               <div class="fp-title">${NAMES[b]}</div>
               <div class="fp-sub"></div>
@@ -254,21 +259,24 @@ export class FlowPlayer {
     if (s.type === 'note') {
       this.packet.hidden = true;
       this.setState(s.at, s.lines, s.tone);
-      this.blocks[s.at].classList.add('focus');
+      this.highlight(s.at, 'focus', s.tone);
+      this.visit(s.at);
       if (animate) await this.wait(500 + 150 * s.lines.length, id);
       return;
     }
 
     const wire = this.wires.querySelector(`[data-w="${s.from}-${s.to}"]`);
     wire?.classList.add('active', `t-${s.tone}`);
-    this.blocks[s.from].classList.add('sending');
+    this.visit(s.from);
+    this.highlight(s.from, 'sending', s.tone);
+    this.highlight(s.to, 'incoming', s.tone);
     this.packet.className = `fp-packet t-${s.tone}`;
     this.packet.querySelector('.fp-txt').textContent = s.pill;
     this.packet.hidden = false;
     this.packet.style.offsetPath = `path('${this.paths[`${s.from}-${s.to}`]}')`;
     if (!animate) {
       this.packet.style.offsetDistance = '100%';
-      this.blocks[s.to].classList.add('focus');
+      this.arrive(s);
       return;
     }
     this.anim = this.packet.animate([{ offsetDistance: '0%' }, { offsetDistance: '100%' }], { duration: 1000, easing: 'ease-in-out', fill: 'forwards' });
@@ -281,8 +289,16 @@ export class FlowPlayer {
     }
     this.anim = null;
     if (id !== this.runId) return;
-    this.blocks[s.to].classList.add('focus', 'receive');
+    this.arrive(s);
+    this.blocks[s.to].classList.add('receive');
     setTimeout(() => this.blocks[s.to].classList.remove('receive'), 600);
+  }
+
+  /** The packet reached its destination: the sender lets go, the destination becomes current. */
+  arrive(s) {
+    this.blocks[s.from].classList.remove('sending');
+    this.highlight(s.to, 'focus', s.tone);
+    this.visit(s.to);
   }
 
   finish() {
@@ -290,7 +306,7 @@ export class FlowPlayer {
     this.clearActive();
     this.packet.hidden = true;
     const last = this.steps.at(-1);
-    if (last?.type === 'note') this.blocks[last.at].classList.add('focus');
+    if (last?.type === 'note') this.highlight(last.at, 'focus', last.tone);
     this.markTimeline(this.steps.length);
     this.root.querySelector('.fp-progress').textContent = 'Done. Replay or step through.';
     this.paused = true;
@@ -299,14 +315,22 @@ export class FlowPlayer {
 
   // ---------- state ----------
   applyStates(upTo) {
+    this.order = new Map();
     for (const b of BLOCKS) {
       const block = this.blocks[b];
-      block.classList.remove('focus', 'sending', 'receive', 't-bad', 't-warn', 't-ok');
+      block.classList.remove('focus', 'sending', 'incoming', 'receive', 'visited', 't-bad', 't-warn', 't-ok');
+      block.querySelector('.fp-badge').textContent = '';
       block.querySelector('.fp-state').innerHTML = block.classList.contains('idle') ? '<span class="muted">not contacted for this call</span>' : '';
     }
     for (let k = 0; k <= upTo; k++) {
       const s = this.steps[k];
-      if (s.type === 'note') this.setState(s.at, s.lines, s.tone);
+      if (s.type === 'note') {
+        this.setState(s.at, s.lines, s.tone);
+        this.visit(s.at);
+      } else {
+        this.visit(s.from);
+        this.visit(s.to);
+      }
     }
     this.packet.hidden = true;
     this.clearActive();
@@ -319,8 +343,21 @@ export class FlowPlayer {
     block.querySelector('.fp-state').innerHTML = lines.map(l => `<div>${esc(l)}</div>`).join('');
   }
 
+  /** Marks a block as reached, numbering blocks in the order the call first reaches them. */
+  visit(b) {
+    if (!this.order.has(b)) this.order.set(b, this.order.size + 1);
+    this.blocks[b].classList.add('visited');
+    this.blocks[b].querySelector('.fp-badge').textContent = this.order.get(b);
+  }
+
+  /** focus: the call is here now · sending: a packet is leaving · incoming: a packet is on its way here. */
+  highlight(b, state, tone) {
+    this.blocks[b].dataset.hl = tone === 'plain' && state === 'focus' ? 'req' : tone;
+    this.blocks[b].classList.add(state);
+  }
+
   clearActive() {
-    for (const b of BLOCKS) this.blocks[b].classList.remove('focus', 'sending');
+    for (const b of BLOCKS) this.blocks[b].classList.remove('focus', 'sending', 'incoming');
     this.wires.querySelectorAll('.active').forEach(w => w.classList.remove('active', 't-req', 't-ok', 't-bad', 't-plain', 't-warn'));
   }
 
