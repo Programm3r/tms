@@ -5,7 +5,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createBff, loadConfig } from '../bff/bff.mjs';
+import { contentEtag, createBff, loadConfig } from '../bff/bff.mjs';
 import { decodeEtag, get } from '../scripts/lib/site.mjs';
 import { launch, lookup } from './device.mjs';
 
@@ -42,6 +42,7 @@ for (const e of envs) {
 }
 
 const bffs = Object.fromEntries(await Promise.all(envs.map(async e => [e.env, await start(e)])));
+const extra = [];   // BFFs started by individual scenarios
 
 try {
   heading(1, 'First launch on SIT (fr-CI): no device cache');
@@ -106,9 +107,32 @@ try {
   line(`puk:section.refresh = "${lookup(content, 'puk:section.refresh')}"`);
   line(`kmn:section.refresh = "${lookup(content, 'kmn:section.refresh')}"`);
 
+  heading(9, 'Content-hash ETag mode: the ETag changes only when the file\'s bytes do');
+  const prodEnv = envs.find(e => e.env === 'prod');
+  const hashLaunch = bff => launch({ bffUrl: bff.url, tag: 'fr-CI', cacheDir: cache('hash-prod') });
+  const hashA = await start({ ...prodEnv, etagMode: 'content' });
+  extra.push(hashA.server);
+  const h1 = await hashLaunch(hashA);
+  const live = await get(`${prodEnv.baseUrl}fr-CI.json`);
+  const liveBody = Buffer.from(await live.arrayBuffer());
+  flushLog();
+  line(`BFF/device  : ${h1.etag}`);
+  line(`GitHub Pages: ${live.headers.get('etag')}  (only the BFF sees this one)`);
+  check(h1.status === 200 && h1.etag === contentEtag(liveBody), `PROD fr-CI → ${h1.status}; the ETag is the SHA-256 of the file GitHub serves`);
+  const h2 = await hashLaunch(hashA);
+  flushLog();
+  check(h2.status === 304 && h2.bytes === 0, `${h2.status}: the BFF revalidated with its stored GitHub ETag, then compared the hash`);
+  const hashB = await start({ ...prodEnv, etagMode: 'content' });
+  extra.push(hashB.server);
+  const h3 = await hashLaunch(hashB);
+  flushLog();
+  line('A new BFF has nothing stored, as if GitHub\'s ETag had changed in a redeploy: it fetches the whole file from GitHub.');
+  check(h3.status === 304 && h3.bytes === 0, `${h3.status}, 0 bytes to the device: same file, same hash. A SIT-only publish ends the same way for PROD.`);
+
   console.log('\nNext: change a value on the sit branch (PR), wait for the publish workflow, then run');
   console.log('`node demo/device.mjs --env sit --tag fr-CI` twice: 200 with the new ETag, then 304.');
 } finally {
   for (const { server } of Object.values(bffs)) server.close();
+  for (const server of extra) server.close();
   rmSync(tmp, { recursive: true, force: true });
 }

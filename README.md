@@ -1,6 +1,6 @@
 # TMS locale delivery: proof of concept
 
-Translation (locale) files for the app, managed in **one GitHub repository** with **one branch per environment**. A GitHub Actions workflow publishes them to **GitHub Pages**. The app on the device gets them through a **pass-through bootstrap BFF** that uses ETags, so a device downloads a file only when it has changed.
+Translation (locale) files for the app, managed in **one GitHub repository** with **one branch per environment**. A GitHub Actions workflow publishes them to **GitHub Pages**. The app on the device gets them through a **bootstrap BFF** that uses ETags, so a device downloads a file only when it has changed. The BFF has two ETag modes: it passes GitHub's ETag through (the default), or it uses a hash of the file's content (see [ETag modes](#etag-modes)).
 
 This is **Strategy 1** (one repository, one site) with **option B** (BFF → GitHub Pages directly, no Azure Front Door). The design is in `localisation-tms/tsd-changes/`: `azure-front-door-etag-caching.md` and `environments-strategy-1-single-site.md`.
 
@@ -13,7 +13,8 @@ This is **Strategy 1** (one repository, one site) with **option B** (BFF → Git
 | How do SIT, QA, UAT and PROD keep separate content in one repository? | Each environment is a branch (`sit`, `qa`, `uat`, `main`) published to its own folder. A change to SIT shows up in SIT only, until it is promoted. |
 | How does a change move between environments? | `add-key` adds a key in SIT. `promote` moves it to QA, then UAT, then PROD with merge commits. The app shows it arriving in each environment. |
 | How does a device know whether its locale file changed? | The app shows the ETag it sent and the ETag received: **304** when nothing changed (0 bytes), **200** when it did, with a key-by-key diff of what changed. |
-| Does the BFF have to compute or store anything? | No. It forwards `If-None-Match` to GitHub Pages and passes back 304 or 200 with GitHub's ETag unchanged. The app's animated **Data flow** view plays each hop of a real call. |
+| Does the BFF have to compute or store anything? | No, in the default mode. It forwards `If-None-Match` to GitHub Pages and passes back 304 or 200 with GitHub's ETag unchanged. The app's animated **Data flow** view plays each hop of a real call. |
+| Does a SIT publish make PROD devices download again? | With GitHub's ETag, yes: every deploy gives every file a new ETag, so the device gets **200 · new ETag, same content**. With the **content hash** ETag, no: the same PROD launch gets **304**. Switch the **ETag** control to compare. |
 | What stops bad content reaching an environment? | The `validate` check runs on every PR and push, and again at publish. It checks file names, journey structure, completeness against `en-US`, placeholders and HTML. |
 | Can a non-PROD publish accidentally change PROD? | No. The publish workflow refuses to deploy if PROD's files would change while `main` didn't. |
 | How is a new market enabled per environment? | `pt-PT` is published in SIT, and only SIT's BFF allowlists it. PROD's BFF returns 400 without calling GitHub. |
@@ -86,7 +87,7 @@ https://programm3r.github.io/tms/ lists which commit each environment currently 
 - `sit` additionally has **`pt-PT`** (a new market) and en-US *"Get my PUK"* instead of *"Request PUK"*.
 - No environment has `puk.section.help-link` yet. That's the red key under the button on the phone.
 
-**Before you start:** with the app open, launch **SIT / fr-CI** and **PROD / fr-CI** once each, so both are cached on the "device".
+**Before you start:** with the app open, launch **SIT / fr-CI** and **PROD / fr-CI** once each, so both are cached on the "device". Then switch **ETag** to **Content hash (BFF)** and launch **PROD / fr-CI** again, so PROD is cached in both modes. Switch back to **GitHub's (pass-through)**.
 
 ### 1. Add a new key in SIT
 
@@ -101,7 +102,8 @@ npm run add-key -- --direct          # or: npm run add-key  → prints a PR link
    - **What changed:** `NEW puk.section.help-link`.
    - The new string is highlighted on the phone.
 4. **Launch app** again: **304 · not modified**, 0 bytes.
-5. **PROD / fr-CI → Launch app:** the key is still red, because PROD is unaffected. Expect **200 · new ETag, same content**: GitHub redeployed the whole site, which gives PROD's files new ETags, but their content is identical. See [ETag note](#etag-note-and-optional-experiment).
+5. **PROD / fr-CI → Launch app:** the key is still red, because PROD is unaffected. Expect **200 · new ETag, same content**: GitHub redeployed the whole site, which gives PROD's files new ETags, but their content is identical. See [ETag note](#etag-note-every-publish-changes-every-etag).
+6. Switch **ETag** to **Content hash (BFF)**, then **PROD / fr-CI → Launch app:** **304 · not modified**, 0 bytes. *GitHub's ETag (BFF only)* shows **changed**: the BFF fetched the file again, but its hash is the same, so the device downloads nothing.
 
 ### 2. Change an existing value
 
@@ -143,7 +145,7 @@ Branch from `main`, open a PR into `main`, and merge. Then back-merge `main → 
 |---|---|
 | **Environment cards** (top) | The commit each environment serves on GitHub Pages, its files, and its BFF allowlist. Click a card to switch environment. |
 | **Phone** | The PUK and Know-my-number screens rendered from the locale data. **Highlighted:** just changed. **Dotted underline:** from the compiled base file. **Red key name:** the key doesn't exist in this environment. *Show keys* adds the key under every string. |
-| **Last launch** | The status in plain words, the ETag sent and received (decoded into file time and size), bytes downloaded, the BFF's call to GitHub, and GitHub's CDN result. Statuses: **200 first download**, **304 not modified**, **200 content updated**, **200 new ETag, same content**, **400/404/502**. |
+| **Last launch** | The status in plain words, the ETag sent and received (decoded into file time and size), bytes downloaded, the BFF's call to GitHub, and GitHub's CDN result. Statuses: **200 first download**, **304 not modified**, **200 content updated**, **200 new ETag, same content**, **400/404/502**. In content-hash mode it also shows GitHub's ETag as the BFF saw it, and whether it changed since the BFF last fetched. **200 new hash, same keys** means only `_meta` changed, because the environment's branch moved on. |
 | **Data flow for this call** | An animated view of the selected call across four blocks: device app, BFF, GitHub CDN edge and GitHub Pages origin. Each request (over the top, blue) and response (underneath, green, or red for errors) travels between the blocks as a labelled packet, e.g. `GET fr-CI · If-None-Match "6abe…"`. The block that acts lights up and shows what it did:<br/>• the device's cache lookup;<br/>• the BFF's allowlist check and the upstream request it built;<br/>• a CDN cache hit (which edge server, how old) or a miss that goes on to the origin;<br/>• *pass through unchanged, store nothing*;<br/>• what the device did with the answer.<br/>Blocks the call never reaches are greyed out. Replay, pause, step (◀ ▶) and speed controls sit above it. Click a row in *Request history* to replay another call. |
 | **What changed** | Keys added, changed (old → new) or removed since the previous cached version. |
 | **Device cache** | The stored ETag, `_meta.commitId` and `publishedAt`, and whether that commit is still what the site serves. |
@@ -152,6 +154,7 @@ Branch from `main`, open a PR into `main`, and merge. Then back-merge `main → 
 
 **Controls:**
 - **Launch app:** renders from the cache first, then makes one conditional GET.
+- **ETag:** **GitHub's (pass-through)** or **Content hash (BFF)**. Each mode has its own device cache, so switching modes doesn't make the device download again, and you can compare both on the same file. The demo app server lets the app pick the mode per request; a real BFF has one mode, set in `bff/config.json`.
 - **Auto-check:** repeats the launch every 15 seconds.
 - **Clear device cache:** forgets the file and ETag for this environment and language. The next launch is a 200 with the full file. GitHub's CDN can still answer it from its own cache, so the origin isn't necessarily contacted.
 - **Bypass GitHub CDN** (demo only): the BFF asks GitHub for a path variant with extra slashes, e.g. `/tms/sit///i18n/v1//fr-CI.json`.
@@ -172,8 +175,8 @@ Branch from `main`, open a PR into `main`, and merge. Then back-merge `main → 
 | `npm run add-key -- --key <journey.path> --value <tag>="…" [--value …] [--env sit\|qa\|uat\|prod] [--direct]` | Adds or changes any key. A new key needs a value for every locale file on that branch. |
 | `npm run promote -- <sit qa \| qa uat \| uat main> [--direct]` | Shows what will be promoted, then prints the PR link or merges with a merge commit and pushes. |
 | `npm run validate` | Runs the content rules on `i18n/` |
-| `npm run showcase` | Plays through eight option B scenarios against the live site in the terminal |
-| `npm run bff` | Starts the four BFFs on ports 8081–8084 for `curl` or `demo/device.mjs` |
+| `npm run showcase` | Plays through nine option B scenarios against the live site in the terminal |
+| `npm run bff [-- --etag-mode content]` | Starts the four BFFs on ports 8081–8084 for `curl` or `demo/device.mjs`, with the ETag mode from `bff/config.json` unless `--etag-mode` overrides it |
 | `node demo/device.mjs --env sit --tag fr-CI [--reset]` | A command-line device: one launch, prints the status, ETag and a value |
 
 `add-key` and `promote` refuse to run with uncommitted changes, and always switch back to the branch you were on.
@@ -190,6 +193,7 @@ Branch from `main`, open a PR into `main`, and merge. Then back-merge `main → 
 | 6 | `pt-PT` on SIT vs PROD | 200 vs 400 (per-environment allowlist) |
 | 7 | Allowlisted tag with no published file | BFF's own 404 JSON, no GitHub HTML, no ETag |
 | 8 | `puk:section.refresh` vs `kmn:section.refresh` | Resolved independently (journeys are namespaces) |
+| 9 | Content-hash mode on PROD (`fr-CI`): first launch, next launch, then a new BFF that has nothing stored | 200 with the file's SHA-256 as the ETag, then 304, then 304 again although the new BFF fetched the whole file from GitHub |
 
 ---
 
@@ -286,7 +290,22 @@ GitHub Pages builds the ETag from the file's **modification time and size**, and
 
 Leave the variable unset. Only these avoid the extra downloads:
 - **Separate sites (Strategy 2):** a SIT publish can't touch PROD's files.
-- **Content-based ETags:** the BFF uses a hash of the file content instead of GitHub's ETag. This changes the "ETag passed through unchanged" design.
+- **Content-hash ETags:** the BFF's `content` mode, below. It changes the "ETag passed through unchanged" design.
+
+### ETag modes
+
+Set `etagMode` in `bff/config.json`, at the top level or per environment.
+
+| | `github` (default) | `content` |
+|---|---|---|
+| ETag the device gets | GitHub's, unchanged: `"<file time>-<size>"` | `"sha256-<first 128 bits of the SHA-256 of the file>"` |
+| Changes when | Any publish, of any environment | This file's bytes change |
+| Who answers the device's `If-None-Match` | GitHub's CDN, forwarded by the BFF | The BFF, by comparing it with the hash |
+| BFF → GitHub | Conditional, with the device's ETag | Conditional, with the GitHub ETag the BFF stored last time |
+| What the BFF keeps | Nothing | Per tag: GitHub's ETag, the hash and the body (a few KB, in memory). If that memory is lost, the next request fetches the whole file from GitHub once. The device still gets a 304 if its hash matches. |
+| Gzip vs identity ETags | Matter: the BFF fixes `Accept-Encoding: identity` | Don't matter to the device |
+
+**Content-hash mode limitation:** `_meta` holds the environment's **branch head** commit. Any commit on a branch therefore changes the bytes, and so the hash, of every locale file in that environment, even if only one language changed. Other environments are unaffected. If you want a hash to change only when that language changes, build `_meta` from the last commit that touched each file (`git log -1 -- i18n/<tag>.json`).
 
 **Observation (2026-10-01):** GitHub once returned `"689c7eee-386e"` for `pages.github.com`, and then `"689c7eef-386e"` on a dozen later requests. The likely cause is two GitHub origin copies with file times one second apart.
 - **Effect if it happens:** a device's ETag doesn't match the copy that answers, so it gets a 200 instead of a 304. That costs a few KB.

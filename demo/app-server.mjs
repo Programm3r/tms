@@ -3,7 +3,7 @@
 //   node demo/app-server.mjs        (or: npm run app)  →  http://localhost:8090
 //
 //   /                                         the front end (demo/app/)
-//   /bff/<env>/bootstrap/v1/localisation/<tag> that environment's BFF (option B pass-through)
+//   /bff/<env>/bootstrap/v1/localisation/<tag> that environment's BFF (option B; x-demo-etag-mode picks the ETag mode)
 //   /base/<en-US|fr-FR>.json                   stands in for the base files compiled into the app (D6)
 //   /config.json                               environments, allowlists, site and repository
 import { readFile } from 'node:fs/promises';
@@ -12,7 +12,7 @@ import { createBffHandler, loadConfig } from '../bff/bff.mjs';
 
 const config = loadConfig();
 const port = Number(process.env.PORT ?? 8090);
-const handlers = Object.fromEntries(Object.values(config.environments).map(e => [e.env, createBffHandler({ ...e, trace: true, allowCdnBypass: true })]));
+const handlers = Object.fromEntries(Object.values(config.environments).map(e => [e.env, createBffHandler({ ...e, trace: true, allowCdnBypass: true, allowEtagModeOverride: true })]));
 const STATIC = {
   '/': ['app/index.html', 'text/html; charset=utf-8'],
   '/app.css': ['app/app.css', 'text/css; charset=utf-8'],
@@ -37,7 +37,7 @@ createServer(async (req, res) => {
   }
 
   if (url.pathname === '/config.json') {
-    const environments = Object.fromEntries(Object.values(config.environments).map(e => [e.env, { tags: e.tags }]));
+    const environments = Object.fromEntries(Object.values(config.environments).map(e => [e.env, { tags: e.tags, etagMode: e.etagMode }]));
     return send(res, 200, 'application/json', JSON.stringify({ repo: config.repo, siteUrl: config.siteUrl, environments }));
   }
 

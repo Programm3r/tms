@@ -10,7 +10,7 @@
 <header class="top">
   <div class="intro">
     <h1>Locale delivery demo</h1>
-    <p>Device → bootstrap BFF → GitHub Pages (option B). Each environment is built only from its own branch.</p>
+    <p>Device → bootstrap BFF → GitHub Pages (option B). Each environment is built only from its own branch. The ETag is either GitHub's, passed through, or a hash of the file computed by the BFF.</p>
   </div>
   <div class="controls">
     <label>Environment
@@ -18,6 +18,12 @@
     </label>
     <label>Language
       <select id="tag"></select>
+    </label>
+    <label title="Which ETag the BFF gives the device. Each mode has its own device cache, so you can compare them on the same file.">ETag
+      <select id="etagMode">
+        <option value="github">GitHub's (pass-through)</option>
+        <option value="content">Content hash (BFF)</option>
+      </select>
     </label>
     <button type="button" id="launch" class="primary">Launch app</button>
     <button type="button" id="clear">Clear device cache</button>
@@ -67,7 +73,7 @@
       <h2>Request history</h2>
       <div class="scroll">
         <table class="history">
-          <thead><tr><th>Time</th><th>Env / tag</th><th>If-None-Match sent</th><th>Status</th><th>ETag received</th><th>Bytes</th><th>GitHub CDN</th><th>Result</th></tr></thead>
+          <thead><tr><th>Time</th><th>Env / tag · ETag</th><th>If-None-Match sent</th><th>Status</th><th>ETag received</th><th>Bytes</th><th>GitHub CDN</th><th>Result</th></tr></thead>
           <tbody id="history"></tbody>
         </table>
       </div>

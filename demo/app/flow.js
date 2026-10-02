@@ -2,6 +2,7 @@
 // each request or response travels between them as a labelled packet, and the block that acts lights
 // up and shows what it did. Requests travel over the top, responses come back underneath.
 // Built from the call's real values: the device's own bookkeeping plus the BFF's x-trace header.
+// In content-hash mode the BFF talks to GitHub with its own stored ETag and compares the hash itself.
 
 const BLOCKS = ['device', 'bff', 'cdn', 'origin'];
 const NAMES = { device: 'Device app', bff: 'Bootstrap BFF', cdn: 'GitHub CDN edge', origin: 'GitHub Pages origin' };
@@ -27,6 +28,7 @@ export function buildSteps(e) {
   const note = (at, lines, tone = 'plain') => steps.push({ type: 'note', at, lines: lines.filter(Boolean), tone });
   const msg = (from, to, pill, lines, tone) => steps.push({ type: 'msg', from, to, pill, lines: lines.filter(Boolean), tone });
   const ENV = e.env.toUpperCase();
+  const content = e.mode === 'content';
   const etagShort = etag => (etag && etag.length > 16 ? `${etag.slice(0, 13)}…"` : etag);
 
   note('device', e.device.cached
@@ -57,7 +59,10 @@ export function buildSteps(e) {
     `${e.tag} is on the ${ENV} allowlist ✓`,
     'Build the upstream request:',
     'Accept-Encoding: identity (forced)',
-    e.sent ? 'If-None-Match: forwarded unchanged' : 'If-None-Match: none to forward',
+    content
+      ? (t.upstream?.request?.['if-none-match'] ? 'If-None-Match: the GitHub ETag the BFF stored' : 'If-None-Match: none (the BFF has nothing stored yet)')
+      : e.sent ? 'If-None-Match: forwarded unchanged' : 'If-None-Match: none to forward',
+    content && e.sent && 'The device\'s hash is kept for the BFF\'s own comparison',
     t.upstream?.bypass && 'Demo: bypass the GitHub CDN with an uncached path variant (extra slashes)',
   ]);
 
@@ -99,7 +104,17 @@ export function buildSteps(e) {
     [statusLine(u.status), h.etag && `ETag: ${h.etag}`, u.status === 200 ? `${u.bytes} bytes · Cache-Control: ${h['cache-control'] ?? '—'}` : u.status === 304 ? '0 bytes' : 'GitHub\'s HTML error page', `${u.ms} ms`],
     ok ? 'ok' : 'bad');
 
-  if (ok) note('bff', ['Pass through unchanged', 'status, ETag and body as received', 'Cache-Control: max-age=300', 'Nothing is stored']);
+  const c = t.content;
+  if (ok && content && c) {
+    const redeployed = c.stored && c.stored.upstreamEtag !== c.upstreamEtag;
+    note('bff', [
+      c.hashed ? `GitHub sent the file: SHA-256 → ${etagShort(c.etag)}` : 'GitHub: not modified, use the stored hash',
+      redeployed && 'GitHub\'s ETag changed (the site was redeployed)',
+      c.hashed && c.stored && (c.stored.etag === c.etag ? 'Same hash as before: content unchanged' : 'New hash: the content changed'),
+      c.hashed && 'Store GitHub ETag + hash + body for this tag',
+      c.match ? 'Device\'s If-None-Match equals the hash → 304' : e.sent ? 'Device\'s If-None-Match differs → 200 with the file' : 'Device sent no If-None-Match → 200 with the file',
+    ], c.match && redeployed ? 'ok' : 'plain');
+  } else if (ok) note('bff', ['Pass through unchanged', 'status, ETag and body as received', 'Cache-Control: max-age=300', 'Nothing is stored']);
   else if (u.status === 404) note('bff', ['GitHub\'s 404 is an HTML page', 'with its own ETag: drop both,', 'answer with the BFF\'s JSON 404'], 'bad');
   else note('bff', [`Unexpected upstream ${u.status}`, 'Answer 502, never partial content'], 'bad');
 
@@ -113,7 +128,7 @@ export function buildSteps(e) {
     unchanged: ['304: keep the cached file', 'Nothing downloaded or parsed'],
     first: ['Parse the JSON ✓', 'Store content + ETag together', `in ${e.device.cacheKey}`, 'Re-render from the new file'],
     updated: ['Parse the JSON ✓', 'Replace content + ETag together', d && `${d.added} added · ${d.changed} changed · ${d.removed} removed`, 'Re-render; changes are highlighted'],
-    'same-content': ['Parse the JSON ✓', 'New ETag but identical keys and values', '(the whole site was redeployed)', 'Replace content + ETag together'],
+    'same-content': ['Parse the JSON ✓', 'New ETag but identical keys and values', content ? '(only _meta changed)' : '(the whole site was redeployed)', 'Replace content + ETag together'],
     error: ['Keep the cached file, or the', 'compiled base file, on screen'],
   }[e.outcome], e.outcome === 'error' ? 'bad' : e.outcome === 'updated' ? 'warn' : 'ok');
   return steps;
@@ -183,7 +198,7 @@ export class FlowPlayer {
     const host = entry.trace?.upstream?.url ? new URL(entry.trace.upstream.url).host : 'github.io';
     this.subs = {
       device: 'browser · localStorage cache',
-      bff: `${entry.env.toUpperCase()} · /bff/${entry.env}`,
+      bff: `${entry.env.toUpperCase()} · /bff/${entry.env} · ${entry.mode === 'content' ? 'content-hash ETag' : 'pass-through'}`,
       cdn: pop ? `Fastly · ${pop}` : 'Fastly',
       origin: host,
     };

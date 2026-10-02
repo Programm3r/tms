@@ -2,7 +2,8 @@
 //   1. render immediately from the device cache, or from the compiled base file if there is none;
 //   2. one conditional GET to this environment's BFF (If-None-Match = cached ETag);
 //   3. 304 → keep the cache; 200 → replace content and ETag together.
-// The device cache is localStorage, keyed by environment and language tag.
+// The device cache is localStorage, keyed by environment and language tag, and by ETag mode: GitHub's
+// ETag (pass-through) and the BFF's content hash each get their own cache, so both can be compared.
 
 import { FlowPlayer } from './flow.js';
 
@@ -29,6 +30,7 @@ const AUTO_SECONDS = 15;
 const state = {
   env: store.get('ui:env') ?? 'sit',
   tag: store.get('ui:tag') ?? 'en-US',
+  etagMode: store.get('ui:etagMode') === 'content' ? 'content' : 'github',
   active: null,          // content currently rendered
   renderedFrom: '',
   last: null,            // last launch result
@@ -42,7 +44,8 @@ const state = {
 if (!ENVS.includes(state.env)) state.env = 'sit';
 
 // ---------- helpers ----------
-const cacheKey = (env, tag) => `cache:${env}:${tag}`;
+const cacheKey = (env, tag, mode = state.etagMode) => (mode === 'content' ? `cache:${env}:${tag}:content` : `cache:${env}:${tag}`);
+const MODE_LABEL = { github: "GitHub's ETag", content: 'content hash' };
 const baseTagFor = tag => (tag.startsWith('fr-') ? 'fr-FR' : 'en-US');
 
 async function baseFile(tag) {
@@ -91,8 +94,8 @@ function ago(iso) {
 
 // ---------- launch: what the shell does on app start ----------
 async function launch() {
-  const { env, tag } = state;
-  const key = cacheKey(env, tag);
+  const { env, tag, etagMode } = state;
+  const key = cacheKey(env, tag, etagMode);
   const cached = cacheGet(key);
   const base = await baseFile(tag);
 
@@ -105,6 +108,7 @@ async function launch() {
     at: Date.now(),
     env,
     tag,
+    mode: etagMode,
     sent: cached?.etag ?? null,
     device: { cacheKey: key, base: base.tag, cached: cached ? { etag: cached.etag, commit: cached.content?._meta?.commitId } : null },
   };
@@ -112,7 +116,11 @@ async function launch() {
   try {
     const res = await fetch(`/bff/${env}/bootstrap/v1/localisation/${encodeURIComponent(tag)}`, {
       cache: 'no-store',
-      headers: { ...(cached ? { 'If-None-Match': cached.etag } : {}), ...($('#bypass').checked ? { 'x-demo-bypass-cdn': '1' } : {}) },
+      headers: {
+        'x-demo-etag-mode': etagMode,
+        ...(cached ? { 'If-None-Match': cached.etag } : {}),
+        ...($('#bypass').checked ? { 'x-demo-bypass-cdn': '1' } : {}),
+      },
     });
     const text = await res.text();
     Object.assign(entry, {
@@ -124,6 +132,9 @@ async function launch() {
       ms: Math.round(performance.now() - started),
       trace: res.headers.get('x-trace') ? JSON.parse(decodeURIComponent(res.headers.get('x-trace'))) : null,
     });
+    // Content mode: GitHub's ETag, which only the BFF sees, and what it was when the BFF last fetched.
+    const c = entry.trace?.content;
+    if (c) entry.github = { etag: c.upstreamEtag, before: c.stored?.upstreamEtag ?? null };
 
     if (res.status === 304) {
       entry.outcome = 'unchanged';
@@ -240,21 +251,48 @@ const OUTCOME = {
   unchanged: ['ok', '304 · not modified', 'GitHub answered the forwarded If-None-Match; nothing was downloaded.'],
   error: ['bad', 'error', 'The device keeps what it has (cache or compiled base file).'],
 };
+const OUTCOME_CONTENT = {
+  'same-content': ['info', '200 · new hash, same keys', 'Only _meta changed (this environment\'s branch moved on), which changes the file\'s bytes and so its hash. Every key and value is the same.'],
+  unchanged: ['ok', '304 · not modified', 'The BFF compared the hash of the current file with If-None-Match; nothing was downloaded.'],
+};
+const githubEtagChanged = e => Boolean(e.github?.before && e.github.etag && e.github.before !== e.github.etag);
+function outcomeOf(e) {
+  const [kind, label, text] = (e.mode === 'content' && OUTCOME_CONTENT[e.outcome]) || OUTCOME[e.outcome];
+  if (e.mode === 'content' && e.outcome === 'unchanged' && githubEtagChanged(e)) {
+    return [kind, label, 'GitHub issued a new ETag (the site was redeployed), but the file\'s hash is the same, so the BFF answered 304. Nothing was downloaded.'];
+  }
+  return [kind, label, text];
+}
+
+/** Content mode: GitHub's ETag as the BFF saw it, and whether it changed since the BFF last fetched. */
+function githubEtagRow(e) {
+  if (!e.github) return '';
+  const b = (cls, text, title) => `<span class="badge sm ${cls}" title="${esc(title)}">${esc(text)}</span>`;
+  const badge = !e.github.before ? b('neutral', 'first fetch', 'The BFF had nothing stored for this file')
+    : githubEtagChanged(e) ? b('warn', 'changed', `Was ${e.github.before} when the BFF last fetched: GitHub redeployed`)
+    : b('ok', 'unchanged', 'Same as when the BFF last fetched');
+  const decoded = decodeEtag(e.github.etag);
+  return `<dt>GitHub's ETag (BFF only)</dt><dd><span class="mono">${esc(e.github.etag ?? '—')}</span> ${badge}${decoded ? ` <span class="muted">file time ${esc(decoded.mtime.toISOString().replace('.000Z', 'Z'))}, ${decoded.size} bytes</span>` : ''}</dd>`;
+}
 
 function renderLast() {
   const e = state.last;
   if (!e) return;
-  const [kind, label, text] = OUTCOME[e.outcome];
+  const [kind, label, text] = outcomeOf(e);
   const statusLabel = e.outcome === 'error' ? `${e.status} · ${label}` : label;
   const tags = etagBadges(e);
   const decoded = decodeEtag(e.received ?? e.sent);
+  const hashed = /^"sha256-/.test(e.received ?? e.sent ?? '');
   $('#last').innerHTML = `
     <div class="headline"><span class="badge ${kind}">${esc(statusLabel)}</span><span class="text">${esc(text)}</span></div>
     <dl class="facts">
       <dt>Request</dt><dd class="mono">GET /bff/${esc(e.env)}/bootstrap/v1/localisation/${esc(e.tag)}</dd>
+      <dt>ETag mode</dt><dd>${e.mode === 'content' ? 'content hash: the BFF hashes the file and compares' : 'GitHub\'s ETag: the BFF passes it through'}</dd>
       <dt>If-None-Match sent</dt><dd><span class="mono">${esc(e.sent ?? '—')}</span> ${tags.sent}</dd>
       <dt>ETag received</dt><dd><span class="mono">${esc(e.received ?? '—')}</span> ${tags.received}</dd>
       ${decoded ? `<dt>ETag decoded</dt><dd>file time ${esc(decoded.mtime.toISOString().replace('.000Z', 'Z'))}, ${decoded.size} bytes <span class="muted">(GitHub Pages: "&lt;mtime&gt;-&lt;size&gt;")</span></dd>` : ''}
+      ${hashed ? '<dt>ETag decoded</dt><dd>SHA-256 of the file\'s bytes (first 128 bits), computed by the BFF <span class="muted">(changes only when the content does)</span></dd>' : ''}
+      ${githubEtagRow(e)}
       <dt>Body</dt><dd>${e.bytes ?? 0} bytes in ${e.ms ?? '?'} ms</dd>
       <dt>BFF → GitHub</dt><dd>${esc(e.upstream ?? '—')} ${e.cdn ? `<span class="muted">(GitHub CDN: ${esc(e.cdn)})</span>` : ''}</dd>
       ${e.error ? `<dt>Error</dt><dd class="mono">${esc(e.error)}</dd>` : ''}
@@ -269,7 +307,12 @@ function renderChanges() {
   if (e.outcome === 'unchanged') { el.innerHTML = '<p>No change: <strong>304</strong>, the cached content is current.</p>'; return; }
   if (e.outcome === 'first') { el.innerHTML = '<p>First download for this environment and language: nothing to compare with.</p>'; return; }
   if (e.outcome === 'error') { el.innerHTML = '<p>Nothing changed on the device.</p>'; return; }
-  if (!d || d.count === 0) { el.innerHTML = '<p>Same keys and values as before. Only the ETag (and <code>_meta</code>) changed.</p>'; return; }
+  if (!d || d.count === 0) {
+    el.innerHTML = e.mode === 'content'
+      ? '<p>Same keys and values as before. Only <code>_meta</code> changed, and with it the hash.</p>'
+      : '<p>Same keys and values as before. Only the ETag (and <code>_meta</code>) changed.</p>';
+    return;
+  }
   const items = [
     ...d.added.map(x => `<li><span class="pill new">NEW</span> <span class="k">${esc(x.key)}</span> = "${esc(x.value)}"</li>`),
     ...d.changed.map(x => `<li><span class="pill chg">CHANGED</span> <span class="k">${esc(x.key)}</span>: <span class="old">"${esc(x.from)}"</span> → "${esc(x.to)}"</li>`),
@@ -298,12 +341,13 @@ function renderCache() {
 }
 
 const OUTCOME_LABEL = { first: 'first download', updated: 'updated', 'same-content': 'new ETag, same content', unchanged: 'not modified', error: 'error' };
+const outcomeLabel = e => (e.mode === 'content' && e.outcome === 'same-content' ? 'new hash, same keys' : OUTCOME_LABEL[e.outcome]);
 
 function renderFlow() {
   const e = state.selected;
   if (!e) return;
   const isLatest = e === state.history[0];
-  $('#flowCaption').innerHTML = `<strong>${esc(e.env.toUpperCase())} / ${esc(e.tag)}</strong> at ${time(e.at)} · ${esc(e.status)} ${esc(OUTCOME_LABEL[e.outcome])} · ${e.ms ?? '?'} ms${isLatest ? '' : ' <span class="muted">(older call)</span>'}`;
+  $('#flowCaption').innerHTML = `<strong>${esc(e.env.toUpperCase())} / ${esc(e.tag)}</strong> at ${time(e.at)} · ${esc(MODE_LABEL[e.mode])} · ${esc(e.status)} ${esc(outcomeLabel(e))} · ${e.ms ?? '?'} ms${isLatest ? '' : ' <span class="muted">(older call)</span>'}`;
   if (player.entry !== e) player.load(e);
 }
 
@@ -311,13 +355,13 @@ function renderHistory() {
   $('#history').innerHTML = state.history.map((e, i) => `
     <tr data-i="${i}" class="${e === state.selected ? 'selected' : ''}" title="Show this call in the data flow diagram">
       <td>${time(e.at)}</td>
-      <td>${esc(e.env)} / ${esc(e.tag)}</td>
+      <td>${esc(e.env)} / ${esc(e.tag)} <span class="muted">· ${esc(MODE_LABEL[e.mode])}</span></td>
       <td><span class="mono">${esc(e.sent ?? '—')}</span> ${etagBadges(e).sent}</td>
       <td><strong>${esc(e.status)}</strong></td>
       <td><span class="mono">${esc(e.received ?? '—')}</span> ${etagBadges(e).received}</td>
       <td>${e.bytes ?? 0}</td>
       <td>${esc(e.cdn ?? '—')}</td>
-      <td>${OUTCOME_LABEL[e.outcome]}</td>
+      <td>${esc(outcomeLabel(e))}</td>
     </tr>`).join('');
 }
 
@@ -402,6 +446,12 @@ $('#clear').addEventListener('click', () => {
   render();
 });
 $('#showKeys').addEventListener('change', renderPhone);
+$('#etagMode').value = state.etagMode;
+$('#etagMode').addEventListener('change', e => {
+  state.etagMode = e.target.value;
+  store.set('ui:etagMode', state.etagMode);
+  select(state.env, state.tag);
+});
 $('#bypass').checked = store.get('ui:bypass') === true;
 $('#bypass').addEventListener('change', e => store.set('ui:bypass', e.target.checked));
 $('#history').addEventListener('click', e => {
