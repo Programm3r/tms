@@ -306,8 +306,26 @@ Set `etagMode` in `bff/config.json`, at the top level or per environment.
 | Changes when | Any publish, of any environment | This file's bytes change |
 | Who answers the device's `If-None-Match` | GitHub's CDN, forwarded by the BFF | The BFF, by comparing it with the hash |
 | BFF → GitHub | Conditional, with the device's ETag | Conditional, with the GitHub ETag the BFF stored last time |
-| What the BFF keeps | Nothing | Per tag: GitHub's ETag, the hash and the body (a few KB, in memory). If that memory is lost, the next request fetches the whole file from GitHub once. The device still gets a 304 if its hash matches. |
+| What the BFF keeps | Nothing | A small in-memory cache, one entry per tag (see [The BFF's cache](#the-bffs-cache-content-mode-only)) |
 | Gzip vs identity ETags | Matter: the BFF fixes `Accept-Encoding: identity` | Don't matter to the device |
+
+#### The BFF's cache (content mode only)
+
+In `github` mode the BFF stores nothing between requests. In `content` mode each environment's BFF keeps a `Map` in memory (`stored` in `bff/bff.mjs`), with one entry per language tag:
+
+| Field | Example | Used for |
+|---|---|---|
+| `upstreamEtag` | `"6abe7e05-d99"` | Asking GitHub whether the file changed (`If-None-Match`) |
+| `etag` | `"sha256-69e1bdd2…"` | Comparing with the device's `If-None-Match` |
+| `body` | the file, about 3.5 KB | Sending to a device that needs the file when GitHub answered 304 |
+
+- **Memory only.** Nothing is written to disk. A restart or a new instance starts empty, and its first request per tag downloads the file from GitHub again. A device whose hash still matches gets a 304 regardless.
+- **Small and bounded.** At most one entry per tag on that environment's allowlist (4 for SIT, 3 elsewhere), about 10–15 KB in all.
+- **No expiry.** It doesn't need one: every request still checks with GitHub, so an entry is used only while GitHub confirms its ETag is current. It's replaced when GitHub sends a new file, and removed on a 404.
+- **It can't serve older content than GitHub does.** The stored file goes out only after GitHub has answered 304 for the stored ETag.
+- **In the demo app,** the cache fills only when you launch in **Content hash (BFF)** mode. Restarting `npm run app` empties it.
+
+The BFF's `Cache-Control: public, max-age=300` response header isn't a BFF cache either. It tells the device, and anything between it and the BFF, how long its copy counts as fresh.
 
 **What happens after a publish that didn't change this file** (e.g. PROD after a SIT-only publish):
 1. The device sends its hash in `If-None-Match`.
